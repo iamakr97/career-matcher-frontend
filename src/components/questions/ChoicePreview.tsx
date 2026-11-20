@@ -1,51 +1,48 @@
 import { useState } from 'react'
 
 import { QuestionMedia } from '@/components/questions/QuestionMedia'
-import { humanize } from '@/components/questions/format'
-import type { OptionGroup, PreviewQuestion, ResolvedAsset } from '@/types/question'
+import type { OptionGroup, PreviewQuestion, QuestionOption, ResolvedAsset } from '@/types/question'
 
-interface Props { question: PreviewQuestion; assets: ResolvedAsset[] }
+interface Props { question: PreviewQuestion; assets: ResolvedAsset[]; adjacentMedia?: boolean }
 
-function OptionStep({ group, selectionMode, assets, layout, selected, onSelect }: {
-  group: OptionGroup; selectionMode: 'single' | 'multiple'; assets: ResolvedAsset[]; layout: string
-  selected: string[]; onSelect: (optionId: string) => void
+const optionLabel = (option: QuestionOption) =>
+  option.text ?? option.pair?.join(' / ') ?? option.values?.join(', ') ?? option.value ?? option.media?.altText ?? option.optionId
+
+function OptionStep({ questionId, stepId, group, selectionMode, assets, layout, selected, onSelect }: {
+  questionId: string; stepId: string; group: OptionGroup; selectionMode: 'single' | 'multiple'
+  assets: ResolvedAsset[]; layout: string; selected: string[]; onSelect: (optionId: string) => void
 }) {
-  const cards = layout === 'image_cards' || layout === 'image_comparison'
-  return (
-    <section className="space-y-4">
-      {group.prompt && <p className="whitespace-pre-line text-base font-medium leading-7 text-slate-800">{group.prompt}</p>}
-      <p className="text-xs text-slate-500">{selectionMode === 'multiple' ? 'Select any that apply' : 'Select one'} · Reviewer preview only</p>
-      <div className={cards ? 'grid gap-3 sm:grid-cols-2' : 'space-y-2'}>
-        {group.choices.map((option) => {
-          const active = selected.includes(option.optionId)
-          const authoredParts = [option.text, option.pair?.join(' / '), option.values?.join(', '), option.value].filter((part): part is string => !!part)
-          const label = [...new Set(authoredParts)].join(' · ') || option.media?.altText || option.optionId
-          return (
-            <button key={option.optionId} type="button" aria-pressed={active} onClick={() => onSelect(option.optionId)} className={`w-full min-w-0 rounded-xl border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 ${active ? 'border-teal-700 bg-teal-50' : 'border-slate-200 bg-white hover:border-teal-300'}`}>
-              {option.media && <QuestionMedia media={option.media} assets={assets} compact />}
-              <span className="mt-2 flex items-start gap-3">
-                <span aria-hidden="true" className={`mt-1 block size-4 shrink-0 border ${selectionMode === 'single' ? 'rounded-full' : 'rounded'} ${active ? 'border-teal-800 bg-teal-800 shadow-[inset_0_0_0_3px_white]' : 'border-slate-400'}`} />
-                <span className="min-w-0 whitespace-pre-line text-sm leading-6 text-slate-800 break-words">{label}</span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </section>
-  )
+  const cards = layout === 'image_cards' || layout === 'image_comparison' || group.choices.some((choice) => choice.media)
+  return <section className="space-y-3" aria-label={group.prompt || 'Response options'}>
+    {group.prompt && <p className="whitespace-pre-line text-[15px] font-medium leading-6 text-slate-800">{group.prompt}</p>}
+    <div className={cards ? 'grid gap-3 sm:grid-cols-2' : 'space-y-2'}>
+      {group.choices.map((option) => {
+        const active = selected.includes(option.optionId)
+        const inputId = `${questionId}-${stepId}-${option.optionId}`
+        const label = optionLabel(option)
+        return <div key={option.optionId} className={`min-w-0 rounded-xl border bg-white px-4 py-3 shadow-[0_1px_3px_rgba(30,58,138,0.03)] transition-colors focus-within:ring-2 focus-within:ring-blue-500 ${active ? 'border-blue-600 bg-blue-50/70' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50/50'} ${cards ? 'space-y-3' : ''}`}>
+          {option.media && <QuestionMedia media={option.media} assets={assets} variant="option" enlargeable />}
+          <div className="flex min-h-5 items-start gap-3">
+            <input id={inputId} name={`${questionId}-${stepId}`} type={selectionMode === 'single' ? 'radio' : 'checkbox'} checked={active} onChange={() => onSelect(option.optionId)} aria-label={label || option.optionId} className="mt-0.5 size-[18px] shrink-0 accent-blue-600" />
+            <label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer whitespace-pre-line break-words text-[15px] leading-6 text-slate-800">{label}</label>
+          </div>
+        </div>
+      })}
+    </div>
+  </section>
 }
 
-export function ChoicePreview({ question, assets }: Props) {
+function ChoiceResponse({ question, assets, adjacentMedia = false }: Props) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
-  const groups = question.presentation.options || []
+  const groups = question.presentation.options ?? []
   const interaction = question.interaction
   const steps = interaction.kind === 'choice'
     ? [{ stepId: 'choice', optionGroupId: interaction.optionGroupId, selectionMode: interaction.selectionMode }]
     : interaction.kind === 'conditional_choice' ? interaction.steps : []
-  const missing = steps.filter((step) => !groups.some((group) => group.groupId === step.optionGroupId))
+
   const choose = (stepId: string, optionId: string, selectionMode: 'single' | 'multiple') => {
     setAnswers((previous) => {
-      const current = previous[stepId] || []
+      const current = previous[stepId] ?? []
       const next = selectionMode === 'multiple'
         ? current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
         : [optionId]
@@ -55,25 +52,43 @@ export function ChoicePreview({ question, assets }: Props) {
       return updated
     })
   }
-  return (
-    <div className="mt-8 space-y-8 border-t border-slate-200 pt-8">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-900">Response preview</h3>
-        {'responseFamily' in interaction && interaction.responseFamily && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{humanize(interaction.responseFamily)}</span>}
-      </div>
-      {steps.map((step, index) => {
-        const group = groups.find((entry) => entry.groupId === step.optionGroupId)
-        if (!group) return null
-        if ('showWhen' in step && step.showWhen) {
-          const condition = step.showWhen
-          if (!(answers[condition.stepId] || []).some((id) => condition.optionIds.includes(id))) return null
+
+  return <div className={`min-w-0 space-y-3 ${adjacentMedia ? '' : 'border-t border-slate-200 pt-4'}`}>
+    <h3 className="text-[13px] font-semibold text-slate-700">Response preview <span className="font-normal text-slate-500">· Reviewer only</span></h3>
+    {steps.map((step, index) => {
+      const group = groups.find((entry) => entry.groupId === step.optionGroupId)
+      if (!group || !group.choices.length) return <p key={step.stepId} role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">Response group {step.optionGroupId} is unavailable.</p>
+      if (interaction.kind === 'conditional_choice') {
+        const condition = 'showWhen' in step ? step.showWhen : undefined
+        const referenceIndex = condition ? steps.findIndex((entry) => entry.stepId === condition.stepId) : -1
+        const referencedGroup = referenceIndex >= 0 ? groups.find((entry) => entry.groupId === steps[referenceIndex].optionGroupId) : undefined
+        const invalidOptions = condition && (!condition.optionIds.length || condition.optionIds.some((id) => !referencedGroup?.choices.some((choice) => choice.optionId === id)))
+        if ((index > 0 && !condition) || (condition && (referenceIndex < 0 || referenceIndex >= index || invalidOptions))) {
+          return <p key={step.stepId} role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">Conditional response {step.stepId} has an unavailable condition.</p>
         }
-        return <div key={step.stepId}>
-          {steps.length > 1 && <p className="mb-3 text-xs font-semibold text-teal-800">Step {index + 1} · {humanize(step.stepId)}</p>}
-          <OptionStep group={group} selectionMode={step.selectionMode} assets={assets} layout={group.layout || question.presentation.layout} selected={answers[step.stepId] || []} onSelect={(optionId) => choose(step.stepId, optionId, step.selectionMode)} />
-        </div>
-      })}
-      {missing.length > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Unsupported or missing response configuration: {missing.map((step) => step.optionGroupId).join(', ')}. See Question details.</p>}
-    </div>
-  )
+        if (condition && !(answers[condition.stepId] ?? []).some((id) => condition.optionIds.includes(id))) return null
+      }
+      return <div key={step.stepId} className="space-y-2">
+        {steps.length > 1 && <p className="text-xs font-semibold text-blue-700">Step {index + 1}</p>}
+        <OptionStep questionId={question.questionId} stepId={step.stepId} group={group} selectionMode={step.selectionMode} assets={assets} layout={group.layout ?? question.presentation.layout} selected={answers[step.stepId] ?? []} onSelect={(optionId) => choose(step.stepId, optionId, step.selectionMode)} />
+      </div>
+    })}
+  </div>
+}
+
+export function ChoicePreview(props: Props) {
+  return <ChoiceResponse key={props.question.questionId} {...props} />
+}
+
+export function StaticChoicePreview({ question, assets, optionGroupId, selectionMode }: Props & { optionGroupId: string; selectionMode: 'single' | 'multiple' }) {
+  const [selected, setSelected] = useState<string[]>([])
+  const group = question.presentation.options?.find((entry) => entry.groupId === optionGroupId)
+  if (!group || !group.choices.length) return <p role="status" className="text-sm text-amber-800">Response group {optionGroupId} is unavailable.</p>
+  const choose = (optionId: string) => setSelected((previous) => selectionMode === 'multiple'
+    ? previous.includes(optionId) ? previous.filter((id) => id !== optionId) : [...previous, optionId]
+    : [optionId])
+  return <div className="border-t border-slate-200 pt-4">
+    <h3 className="mb-3 text-[13px] font-semibold text-slate-700">Response preview <span className="font-normal text-slate-500">· Reviewer only</span></h3>
+    <OptionStep questionId={question.questionId} stepId="static-choice" group={group} selectionMode={selectionMode} assets={assets} layout={group.layout ?? question.presentation.layout} selected={selected} onSelect={choose} />
+  </div>
 }

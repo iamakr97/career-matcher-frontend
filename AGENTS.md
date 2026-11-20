@@ -14,6 +14,8 @@ This repository is the Career Matcher frontend. Use React, TypeScript, Vite, Rea
 - `src/store/`: Redux store, typed hooks, and future application-state slices. Register the shared API reducer and middleware once.
 - `src/types/`: shared types and DTOs when real contracts are known. Do not invent response shapes.
 
+Shadcn/ui uses the Base UI + Nova preset. Keep generated primitives in `src/components/ui/`, shared helpers in `src/lib/`, and generated hooks in `src/hooks/`. Keep `components.json`, the root and app TypeScript aliases, and Vite's `@/` alias aligned with `src/`. Do not switch the preset to Radix.
+
 Create other directories only for a concrete need. Use `@/` for imports from `src`. Prefer named, typed exports for services and state. Avoid `any`, unsafe casts, and TypeScript suppression. Follow the existing single-quote, no-semicolon formatting.
 
 ## API and routing

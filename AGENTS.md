@@ -10,8 +10,8 @@ This repository is the Career Matcher frontend. Use React, TypeScript, Vite, Rea
 - `src/pages/`: route-level wrappers; use kebab-case file names.
 - `src/router/`: route definitions using `createBrowserRouter`. Add public or private route groups only after their behavior is defined.
 - `src/layout/`: app shells when a layout is needed. Authentication and dashboard shells are not defined yet.
-- `src/services/`: the shared RTK Query `api` slice and future module services. Add endpoints with `api.injectEndpoints`.
-- `src/store/`: Redux store, typed hooks, and future application-state slices. Register the shared API reducer and middleware once.
+- `src/services/`: `api.ts` owns the shared `fetchBaseQuery` transport only. Each backend domain owns a separate `createApi` instance and its endpoints in a module file, such as `questionApi.ts`.
+- `src/store/`: `store.ts` registers each module API reducer and middleware once and exports `useAppDispatch` and `useAppSelector` with `RootState` and `AppDispatch`. Add client-state slices only when needed.
 - `src/types/`: shared types and DTOs when real contracts are known. Do not invent response shapes.
 
 Shadcn/ui uses the Base UI + Nova preset. Keep generated primitives in `src/components/ui/`, shared helpers in `src/lib/`, and generated hooks in `src/hooks/`. Keep `components.json`, the root and app TypeScript aliases, and Vite's `@/` alias aligned with `src/`. Do not switch the preset to Radix.
@@ -20,7 +20,7 @@ Create other directories only for a concrete need. Use `@/` for imports from `sr
 
 ## API and routing
 
-Configure the backend base URL with `VITE_BE_API_URL` as documented in `.env.example`. Do not append an assumed API prefix, add endpoints, or implement auth or token refresh before their contracts are specified. Keep route content in components and pages as wrappers. The current router has only a home route and a fallback route; do not add placeholder product routes.
+Configure `VITE_BE_API_URL` as the backend origin only, as documented in `.env.example`; `src/services/api.ts` appends `/api` exactly once. Do not add module endpoints or implement auth or token refresh before their contracts are specified. Keep route content in components and pages as wrappers. The current router has only a home route and a fallback route; do not add placeholder product routes.
 
 ## UI and validation
 

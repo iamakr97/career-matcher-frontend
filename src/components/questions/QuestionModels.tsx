@@ -3,13 +3,13 @@ import { Layers3 } from 'lucide-react'
 import type { FacetsData, ModelsData } from '@/types/question'
 
 const purpose: Record<string, string> = {
-  riasec: 'Career Interests',
-  big_five: 'Personality Traits',
-  oecd_sses: 'Social-Emotional Skills',
-  chc: 'Cognitive Abilities',
+  riasec: 'Interest',
+  big_five: 'Personality',
+  oecd_sses: 'Emotional & Social Skills (EQ)',
+  chc: 'Aptitude & Reasoning',
   pisa_creative_thinking: 'Creative Thinking',
-  sdt: 'Motivation & Psychological Needs',
-  scct: 'Career Beliefs & Context',
+  sdt: 'Motivation',
+  scct: 'Career Confidence & Goals',
 }
 
 const scientificName: Record<string, string> = {
@@ -48,8 +48,8 @@ interface Props {
 
 export function QuestionModels({ data, selectedModel, loading, facets, facetsLoading, facetsError, onFacetsRetry, selectedAreaCode, selectedAreaName, onSelect, onAreaSelect }: Props) {
   const areas = facets?.categories.filter((category) => category.axis === 'broad_ability') ?? []
-  return <section aria-label="Scientific models" className="max-h-[42vh] min-w-0 overflow-y-auto pr-1 lg:max-h-[46vh]">
-    <h2 className="mb-3 text-sm font-semibold text-slate-600">What is assessed</h2>
+  return <section aria-label="Scientific models" className="min-w-0">
+    <h2 className="mb-3 text-sm font-semibold text-slate-600">Assessments</h2>
     <div className="space-y-1">
       <button type="button" onClick={() => onSelect()} aria-current={!selectedModel ? 'true' : undefined} className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border-l-[3px] px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${!selectedModel ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-transparent text-slate-700 hover:bg-slate-50'}`}><span>All Questions</span><span className="rounded-full bg-white/80 px-2 py-0.5 text-xs tabular-nums text-slate-600">{data?.total ?? (loading ? '…' : '—')}</span></button>
       {data?.items.map((item) => {

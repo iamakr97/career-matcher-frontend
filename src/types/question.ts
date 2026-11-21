@@ -68,6 +68,12 @@ export interface QuestionMedia {
   url?: string | null
   fallback?: QuestionMedia
 }
+export interface ComicPaletteAsset {
+  pieceKey: string
+  label: string
+  status: 'available' | 'unmapped'
+  media?: QuestionMedia
+}
 export interface QuestionOption {
   optionId: string
   text?: string
@@ -118,5 +124,5 @@ export interface DetailData {
   question: PreviewQuestion
   mediaBaseUrl: string | null
   resolvedAssets: ResolvedAsset[]
-  navigation: { previousQuestionId: string | null; nextQuestionId: string | null }
+  navigation: { previousQuestionId: string | null; nextQuestionId: string | null; position: number; total: number }
 }

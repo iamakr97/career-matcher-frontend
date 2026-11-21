@@ -3,7 +3,8 @@ import { useState } from 'react'
 import { QuestionMedia } from '@/components/questions/QuestionMedia'
 import type { OptionGroup, PreviewQuestion, QuestionOption, ResolvedAsset } from '@/types/question'
 
-interface Props { question: PreviewQuestion; assets: ResolvedAsset[]; adjacentMedia?: boolean }
+interface BaseProps { question: PreviewQuestion; assets: ResolvedAsset[]; adjacentMedia?: boolean }
+interface Props extends BaseProps { answers: Record<string, string[]>; onAnswersChange: (answers: Record<string, string[]>) => void }
 
 const optionLabel = (option: QuestionOption) =>
   option.text ?? option.pair?.join(' / ') ?? option.values?.join(', ') ?? option.value ?? option.media?.altText ?? option.optionId
@@ -32,8 +33,7 @@ function OptionStep({ questionId, stepId, group, selectionMode, assets, layout, 
   </section>
 }
 
-function ChoiceResponse({ question, assets, adjacentMedia = false }: Props) {
-  const [answers, setAnswers] = useState<Record<string, string[]>>({})
+function ChoiceResponse({ question, assets, adjacentMedia = false, answers, onAnswersChange }: Props) {
   const groups = question.presentation.options ?? []
   const interaction = question.interaction
   const steps = interaction.kind === 'choice'
@@ -41,20 +41,21 @@ function ChoiceResponse({ question, assets, adjacentMedia = false }: Props) {
     : interaction.kind === 'conditional_choice' ? interaction.steps : []
 
   const choose = (stepId: string, optionId: string, selectionMode: 'single' | 'multiple') => {
-    setAnswers((previous) => {
-      const current = previous[stepId] ?? []
-      const next = selectionMode === 'multiple'
-        ? current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
-        : [optionId]
-      const updated: Record<string, string[]> = { ...previous, [stepId]: next }
-      const start = steps.findIndex((step) => step.stepId === stepId)
-      steps.slice(start + 1).forEach((step) => { delete updated[step.stepId] })
-      return updated
+    const current = answers[stepId] ?? []
+    const next = selectionMode === 'multiple'
+      ? current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
+      : [optionId]
+    const updated: Record<string, string[]> = { ...answers, [stepId]: next }
+    steps.forEach((step) => {
+      if ('showWhen' in step && step.showWhen &&
+        !(updated[step.showWhen.stepId] ?? []).some((id) => step.showWhen?.optionIds.includes(id))) {
+        delete updated[step.stepId]
+      }
     })
+    onAnswersChange(updated)
   }
 
   return <div className={`min-w-0 space-y-3 ${adjacentMedia ? '' : 'border-t border-slate-200 pt-4'}`}>
-    <h3 className="text-[13px] font-semibold text-slate-700">Response preview <span className="font-normal text-slate-500">· Reviewer only</span></h3>
     {steps.map((step, index) => {
       const group = groups.find((entry) => entry.groupId === step.optionGroupId)
       if (!group || !group.choices.length) return <p key={step.stepId} role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">Response group {step.optionGroupId} is unavailable.</p>
@@ -77,10 +78,10 @@ function ChoiceResponse({ question, assets, adjacentMedia = false }: Props) {
 }
 
 export function ChoicePreview(props: Props) {
-  return <ChoiceResponse key={props.question.questionId} {...props} />
+  return <ChoiceResponse {...props} />
 }
 
-export function StaticChoicePreview({ question, assets, optionGroupId, selectionMode }: Props & { optionGroupId: string; selectionMode: 'single' | 'multiple' }) {
+export function StaticChoicePreview({ question, assets, optionGroupId, selectionMode }: BaseProps & { optionGroupId: string; selectionMode: 'single' | 'multiple' }) {
   const [selected, setSelected] = useState<string[]>([])
   const group = question.presentation.options?.find((entry) => entry.groupId === optionGroupId)
   if (!group || !group.choices.length) return <p role="status" className="text-sm text-amber-800">Response group {optionGroupId} is unavailable.</p>
@@ -88,7 +89,6 @@ export function StaticChoicePreview({ question, assets, optionGroupId, selection
     ? previous.includes(optionId) ? previous.filter((id) => id !== optionId) : [...previous, optionId]
     : [optionId])
   return <div className="border-t border-slate-200 pt-4">
-    <h3 className="mb-3 text-[13px] font-semibold text-slate-700">Response preview <span className="font-normal text-slate-500">· Reviewer only</span></h3>
     <OptionStep questionId={question.questionId} stepId="static-choice" group={group} selectionMode={selectionMode} assets={assets} layout={group.layout ?? question.presentation.layout} selected={selected} onSelect={choose} />
   </div>
 }

@@ -1,15 +1,17 @@
 import { StaticChoicePreview } from '@/components/questions/ChoicePreview'
+import { ComicBuilder } from '@/components/questions/pisa/ComicBuilder'
+import type { ComicDraft } from '@/components/questions/pisa/ComicBuilder'
 import { QuestionMedia } from '@/components/questions/QuestionMedia'
 import { humanize } from '@/components/questions/format'
 import type { PreviewQuestion, ResolvedAsset } from '@/types/question'
 
-interface Props { question: PreviewQuestion; assets: ResolvedAsset[] }
+interface BaseProps { question: PreviewQuestion; assets: ResolvedAsset[] }
+interface Props extends BaseProps { comicDraft?: ComicDraft; onComicDraftChange: (draft: ComicDraft) => void }
 
 const stringField = (value: unknown) => typeof value === 'string' ? value : undefined
-const countField = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((line) => typeof line === 'string')
 
-function MediaSet({ question, assets }: Props) {
+function MediaSet({ question, assets }: BaseProps) {
   const media = question.presentation.media ?? []
   if (!media.length) return null
   return <div className="grid gap-4 sm:grid-cols-2">{media.map((item, index) => <QuestionMedia key={item.mediaId ?? item.fileKey ?? index} media={item} assets={assets} variant={media.length > 1 ? 'sequence' : item.role === 'stimulus' ? 'stimulus' : 'supporting'} enlargeable />)}</div>
@@ -44,31 +46,15 @@ function PerformancePreview({ question, assets }: Props) {
   </div>
 }
 
-function StoryboardPreview({ question, assets, panelCount, lockedPanels }: Props & { panelCount: number; lockedPanels: number }) {
-  const media = question.presentation.media ?? []
-  return <section className="space-y-4 rounded-xl bg-blue-50/60 p-4" aria-label="Storyboard preview"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-slate-800">Storyboard preview</h3><span className="text-xs text-slate-500">{lockedPanels} provided · {panelCount - lockedPanels} empty</span></div><div className="grid gap-3 sm:grid-cols-2">
-    {Array.from({ length: panelCount }, (_, index) => <section key={index} aria-label={`Storyboard panel ${index + 1}`} className="min-w-0 rounded-xl bg-white p-3 shadow-[0_1px_4px_rgba(30,58,138,0.05)]">
-      <h4 className="mb-2 text-xs font-semibold text-slate-600">Panel {index + 1} · {index < lockedPanels ? 'Provided' : 'Student work area'}</h4>
-      {index < lockedPanels
-        ? media[index] ? <QuestionMedia media={media[index]} assets={assets} variant="sequence" enlargeable /> : <p className="text-xs text-slate-600">Provided panel media is unavailable.</p>
-        : <div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-blue-200 bg-blue-50/40 text-sm text-slate-500">Empty panel</div>}
-    </section>)}
-  </div>{media.length > lockedPanels && <div><h4 className="mb-2 text-xs font-semibold text-slate-600">Additional provided media</h4><div className="grid gap-3 sm:grid-cols-2">{media.slice(lockedPanels).map((item, index) => <QuestionMedia key={item.mediaId ?? item.fileKey ?? index} media={item} assets={assets} variant="sequence" enlargeable />)}</div></div>}</section>
-}
-
-function ConstructedActivityPreview({ question, assets }: Props) {
+function ConstructedActivityPreview({ question, assets, comicDraft, onComicDraftChange }: Props) {
   if (question.interaction.kind !== 'constructed_activity') return null
   const editor = question.interaction.editor ?? {}
   const kind = stringField(editor.kind)
-  const panelCount = countField(editor.panelCount)
-  const lockedPanels = countField(editor.lockedPanels)
-  const storyboard = kind === 'comic_builder' && panelCount !== undefined && panelCount > 0 && lockedPanels !== undefined && lockedPanels <= panelCount
+  if (kind === 'comic_builder') return <ComicBuilder key={question.questionId} question={question} assets={assets} draft={comicDraft} onDraftChange={onComicDraftChange} />
   return <div className="space-y-4">
     {kind && <p className="text-sm font-medium text-slate-600">Activity: {humanize(kind)}</p>}
-    {storyboard && panelCount !== undefined && lockedPanels !== undefined
-      ? <StoryboardPreview question={question} assets={assets} panelCount={panelCount} lockedPanels={lockedPanels} />
-      : <MediaSet question={question} assets={assets} />}
-    {!storyboard && <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">Student work area is not interactive in this reviewer preview.</p>}
+    <MediaSet question={question} assets={assets} />
+    <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">Student work area is not interactive in this reviewer preview.</p>
   </div>
 }
 

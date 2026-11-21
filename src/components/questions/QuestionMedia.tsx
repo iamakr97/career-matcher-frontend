@@ -28,7 +28,7 @@ export function QuestionMedia({ media, assets, variant = 'supporting', enlargeab
     ) : source && image && enlargeable ? (
       <Dialog>
         <DialogTrigger aria-label={`Enlarge ${label}`} className="block w-full cursor-zoom-in rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-          <img src={source} alt={label} className={`mx-auto w-full rounded-lg object-contain ${imageSize}`} onError={markFailed} />
+          <img src={source} alt={label} className={`mx-auto max-w-full rounded-lg object-contain ${imageSize}`} onError={markFailed} />
         </DialogTrigger>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
           <DialogTitle>Image preview</DialogTitle>
@@ -37,7 +37,7 @@ export function QuestionMedia({ media, assets, variant = 'supporting', enlargeab
         </DialogContent>
       </Dialog>
     ) : source && image ? (
-      <img src={source} alt={label} className={`mx-auto w-full rounded-lg object-contain ${imageSize}`} onError={markFailed} />
+      <img src={source} alt={label} className={`mx-auto max-w-full rounded-lg object-contain ${imageSize}`} onError={markFailed} />
     ) : source && type === 'audio' ? (
       <audio controls preload="none" className="w-full" aria-label={label} src={source} onError={markFailed} />
     ) : source && type === 'video' ? (

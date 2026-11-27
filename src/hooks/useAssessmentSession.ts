@@ -7,6 +7,7 @@ import { useCreateAssessmentMutation, useLazyGetAssessmentQuery, useLazyGetAsses
 import type { AssessmentOperationIntent, AssessmentParticipant, AssessmentReportResponseDto, AssessmentStateDto, SubmitResponseDto } from '@/types/assessment'
 
 type Operation = 'idle' | 'loading' | 'registering' | 'submitting' | 'checking' | 'report'
+export type OperationOutcome = 'accepted' | 'rejected' | 'uncertain' | 'not_sent'
 const processing = (state: AssessmentStateDto) => ['awaiting_evaluation', 'finalizing_scientific_results', 'generating_report'].includes(state.phase)
 const progressed = (state: AssessmentStateDto, payload: SubmitResponseDto) => state.status === 'completed' || state.phase === 'report_ready' || !!state.currentQuestion && (state.currentQuestion.attemptId !== payload.attemptId || state.currentQuestion.currentStep !== payload.step)
 
@@ -22,6 +23,7 @@ export const useAssessmentSession = (assessmentId?: string) => {
   const pending = useRef<SubmitResponseDto | null>(null)
   const flight = useRef(false)
   const mounted = useRef(true)
+  const scope = useRef(assessmentId)
   const reportRequested = useRef(false)
   const [create] = useCreateAssessmentMutation()
   const [read] = useLazyGetAssessmentQuery()
@@ -29,10 +31,12 @@ export const useAssessmentSession = (assessmentId?: string) => {
   const [readReport] = useLazyGetAssessmentReportQuery()
 
   const commit = useCallback((next: AssessmentStateDto) => {
-    if (!mounted.current || next.assessmentId !== assessmentId || current.current && next.stateRevision < current.current.stateRevision) return
+    if (!mounted.current || scope.current !== assessmentId || next.assessmentId !== assessmentId || current.current && next.stateRevision < current.current.stateRevision) return
+    const previous = current.current
     current.current = next
     setState(next)
     if (pending.current && progressed(next, pending.current)) { pending.current = null; setHasPending(false) }
+    if (!previous || previous.phase !== next.phase || previous.activeModel !== next.activeModel || previous.currentQuestion?.attemptId !== next.currentQuestion?.attemptId || previous.currentQuestion?.currentStep !== next.currentQuestion?.currentStep) setPollCount(0)
   }, [assessmentId])
   const begin = (kind: Operation) => {
     if (flight.current) return false
@@ -50,7 +54,11 @@ export const useAssessmentSession = (assessmentId?: string) => {
     setOperation(initial ? 'loading' : 'checking')
     try {
       const next = await read({ assessmentId }, false).unwrap()
-      if (mounted.current) { commit(next); setError(null); return true }
+      if (mounted.current && scope.current === assessmentId) {
+        commit(next)
+        if (!pending.current) setError(null)
+        return true
+      }
     } catch (cause) { if (mounted.current) setError(assessmentError(cause)) }
     finally { flight.current = false; if (mounted.current) setOperation('idle') }
     return false
@@ -68,8 +76,13 @@ export const useAssessmentSession = (assessmentId?: string) => {
   }, [assessmentId, readReport])
   useEffect(() => {
     mounted.current = true
+    scope.current = assessmentId
+    current.current = null
+    pending.current = null
+    flight.current = false
+    reportRequested.current = false
     if (assessmentId) queueMicrotask(() => { if (mounted.current) void refresh(true) })
-    return () => { mounted.current = false }
+    return () => { mounted.current = false; scope.current = undefined }
   }, [assessmentId, refresh])
   useEffect(() => {
     if (state?.phase === 'report_ready' && state.status === 'completed' && !reportRequested.current && operation === 'idle') void fetchReport()
@@ -92,56 +105,65 @@ export const useAssessmentSession = (assessmentId?: string) => {
     } catch (cause) { if (mounted.current) setError(assessmentError(cause)) }
     finally { end() }
   }
-  const send = async (payload: SubmitResponseDto) => {
-    if (!assessmentId || !begin('submitting')) return
-    let conflict = false
+  const send = async (payload: SubmitResponseDto): Promise<OperationOutcome> => {
+    if (!assessmentId || !begin('submitting')) return 'not_sent'
     try {
       const next = await submit({ assessmentId, payload }).unwrap()
-      if (mounted.current) {
+      if (mounted.current && scope.current === assessmentId) {
         commit(next)
         pending.current = null
         setHasPending(false)
         setError(null)
       }
+      return 'accepted'
     } catch (cause) {
-      if (mounted.current) {
-        const failure = assessmentError(cause)
-        setError(failure)
-        conflict = failure.status === 409
-        if (!failure.ambiguous && failure.status !== 409) { pending.current = null; setHasPending(false) }
+      if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
+      const failure = assessmentError(cause)
+      if (failure.ambiguous || failure.status === 409) {
+        try {
+          const next = await read({ assessmentId }, false).unwrap()
+          if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
+          commit(next)
+          if (progressed(next, payload)) { setError(null); return 'accepted' }
+        } catch (recoveryCause) {
+          if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
+          if (assessmentError(recoveryCause).status === 'PARSING_ERROR') setError({ message: 'The assessment service returned an unexpected response.', ambiguous: true, fields: {} })
+        }
+        setError({ message: failure.status === 'PARSING_ERROR' ? 'The assessment service returned an unexpected response. Retry your saved answer.' : 'Your answer may have been saved. Retry the same answer to continue.', ambiguous: true, fields: {} })
+        return 'uncertain'
       }
+      pending.current = null
+      setHasPending(false)
+      setError(failure)
+      return 'rejected'
     } finally { end() }
-    if (conflict && mounted.current) {
-      await refresh()
-      if (pending.current && mounted.current) setError({ message: 'The assessment changed. Check the current state or retry the exact response.', status: 409, ambiguous: true, fields: {} })
-    }
   }
-  const submitOperation = async (intent: AssessmentOperationIntent) => {
+  const submitOperation = async (intent: AssessmentOperationIntent): Promise<OperationOutcome> => {
     const saved = current.current
     const question = saved?.currentQuestion
-    if (!saved || !question || flight.current || pending.current || saved.phase !== 'administering' || saved.status !== 'active' || !question.allowedOperations.includes(intent.operation) || question.recoveryRequired && intent.operation !== 'interrupt') return
+    if (!saved || !question || flight.current || pending.current || saved.phase !== 'administering' || saved.status !== 'active' || !question.allowedOperations.includes(intent.operation) || question.recoveryRequired && intent.operation !== 'interrupt') return 'not_sent'
     if (question.interaction.kind === 'choice') {
-      if (intent.operation !== 'submit' || intent.response.kind !== 'choice' || question.interaction.selectionMode !== 'single') return
+      if (intent.operation !== 'submit' || intent.response.kind !== 'choice' || question.interaction.selectionMode !== 'single') return 'not_sent'
       const groupId = question.interaction.optionGroupId
       const selectedId = intent.response.selectedOptionId
       const group = question.presentation.options.find((item) => item.groupId === groupId)
-      if (!group?.choices.some((choice) => choice.optionId === selectedId)) return
+      if (!group?.choices.some((choice) => choice.optionId === selectedId)) return 'not_sent'
     }
-    if (question.interaction.kind === 'performance' && !validChcIntent(question, intent)) { setError({ message: 'This response does not match the issued performance step.', ambiguous: false, fields: {} }); return }
-    if (question.interaction.kind === 'constructed_activity' && !validPisaIntent(question, intent)) { setError({ message: 'Complete the issued activity fields before continuing.', ambiguous: false, fields: {} }); return }
+    if (question.interaction.kind === 'performance' && !validChcIntent(question, intent)) { setError({ message: 'This response does not match the issued performance step.', ambiguous: false, fields: {} }); return 'rejected' }
+    if (question.interaction.kind === 'constructed_activity' && !validPisaIntent(question, intent)) { setError({ message: 'Complete the issued activity fields before continuing.', ambiguous: false, fields: {} }); return 'rejected' }
     const common = { attemptId: question.attemptId, requestId: crypto.randomUUID(), expectedStateRevision: saved.stateRevision, step: question.currentStep }
     const payload: SubmitResponseDto = { ...common, ...intent }
-    if (!validSubmitPayload(payload)) { setError({ message: 'The response format is invalid.', ambiguous: false, fields: {} }); return }
+    if (!validSubmitPayload(payload)) { setError({ message: 'The response format is invalid.', ambiguous: false, fields: {} }); return 'rejected' }
     pending.current = payload
     setHasPending(true)
-    await send(payload)
+    return send(payload)
   }
   const submitChoice = (selectedOptionId: string) => submitOperation({ operation: 'submit', response: { kind: 'choice', selectedOptionId } })
   const retrySaved = async () => { if (pending.current) await send(pending.current) }
   const checkAgain = async () => {
     const hadPending = pending.current
     await refresh()
-    if (hadPending && pending.current && current.current?.currentQuestion?.attemptId === hadPending.attemptId && current.current.currentQuestion.currentStep === hadPending.step) setError({ message: 'The response may still be processing. Retry the same response if needed.', ambiguous: true, fields: {} })
+    if (hadPending && pending.current && current.current?.currentQuestion?.attemptId === hadPending.attemptId && current.current.currentQuestion.currentStep === hadPending.step) setError({ message: 'Your answer may have been saved. Retry the same answer to continue.', ambiguous: true, fields: {} })
   }
   return { state, report, error, operation, pollCount, hasPending, register, refresh: checkAgain, fetchReport, submitChoice, submitOperation, retrySaved }
 }

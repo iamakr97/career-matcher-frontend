@@ -10,7 +10,7 @@ const list = (value: unknown, check: (item: unknown) => boolean, max = 256): val
 const keys = (value: Record<string, unknown>, allowed: string[]): boolean => Object.keys(value).every((key) => allowed.includes(key))
 const optional = (value: unknown, check: (item: unknown) => boolean): boolean => value === undefined || check(value)
 const oneOf = (value: unknown, choices: string[]): boolean => typeof value === 'string' && choices.includes(value)
-const events = ['presentation', 'practice', 'study', 'retention', 'cue', 'interference', 'playback', 'response', 'interruption', 'technical_failure']
+const events = ['acknowledgement', 'presentation', 'practice', 'study', 'hide', 'retention', 'cue', 'interference', 'playback', 'response', 'interruption', 'technical_failure']
 const kinds = ['option', 'ordered', 'filtered_ordered', 'unit_stream', 'cell', 'cell_set']
 
 const optionGroup = (value: unknown, media: (value: unknown) => boolean): boolean => {
@@ -24,8 +24,8 @@ export const validChcStep = (value: unknown, media: (value: unknown) => boolean)
   const timing = value.timing
   if (!record(timing) || !['studyExposureMs', 'perTokenExposureMs', 'interTokenGapMs', 'retentionDelayMs', 'ruleCueExposureMs', 'interferenceDurationMs', 'responseWindowMs', 'interUnitGapMs'].every((key) => timing[key] === null || duration(timing[key])) || !(timing.playbackLimit === null || integer(timing.playbackLimit, 1)) || typeof timing.allowReplay !== 'boolean' || typeof timing.studyVisibleDuringResponse !== 'boolean') return false
   const s = value.stimulus
-  if (s !== undefined && (!record(s) || !['text', 'cue', 'current', 'sample', 'candidate', 'studyText'].every((key) => optional(s[key], text)) || !['tokens', 'highlightOrder', 'cells', 'responseCells', 'rowA', 'rowB'].every((key) => optional(s[key], (items) => list(items, text))) || !optional(s.numberTokens, (items) => list(items, (item) => typeof item === 'number' && Number.isFinite(item))) || !optional(s.gridRows, (item) => integer(item, 1)) || !optional(s.gridColumns, (item) => integer(item, 1)) || (s.gridRows !== undefined && s.gridColumns !== undefined && (Number(s.gridRows) * Number(s.gridColumns) > 256 || (Array.isArray(s.cells) && s.cells.length > Number(s.gridRows) * Number(s.gridColumns)))) || !optional(s.studyPairs, (items) => list(items, (pair) => record(pair) && id(pair.cue) && optional(pair.target, text) && optional(pair.targetSequence, (tokens) => list(tokens, text)) && optional(pair.context, text))) || !optional(s.studyFacts, (items) => list(items, (fact) => record(fact) && ['text', 'signal', 'object', 'destination', 'event', 'location'].every((key) => optional(fact[key], text)))) || !optional(s.optionGroup, (group) => optionGroup(group, media)) || !optional(s.media, media))) return false
-  return optional(value.responseTokens, (items) => list(items, text)) && optional(value.practiceRound, (item) => integer(item, 1)) && optional(value.cellCount, (item) => integer(item, 1) && item <= 256) && optional(value.omissionAllowed, (item) => typeof item === 'boolean')
+  if (s !== undefined && (!record(s) || !['text', 'cue', 'current', 'sample', 'candidate', 'studyText'].every((key) => optional(s[key], text)) || !optional(s.currentEvent, (event) => record(event) && text(event.channel) && text(event.token)) || !['tokens', 'highlightOrder', 'cells', 'responseCells', 'rowA', 'rowB'].every((key) => optional(s[key], (items) => list(items, text))) || !optional(s.numberTokens, (items) => list(items, (item) => typeof item === 'number' && Number.isFinite(item))) || !optional(s.gridRows, (item) => integer(item, 1)) || !optional(s.gridColumns, (item) => integer(item, 1)) || (s.gridRows !== undefined && s.gridColumns !== undefined && (Number(s.gridRows) * Number(s.gridColumns) > 256 || (Array.isArray(s.cells) && s.cells.length > Number(s.gridRows) * Number(s.gridColumns)))) || !optional(s.studyPairs, (items) => list(items, (pair) => record(pair) && id(pair.cue) && optional(pair.target, text) && optional(pair.targetSequence, (tokens) => list(tokens, text)) && optional(pair.context, text))) || !optional(s.studyFacts, (items) => list(items, (fact) => record(fact) && ['text', 'signal', 'object', 'destination', 'event', 'location'].every((key) => optional(fact[key], text)))) || !optional(s.optionGroup, (group) => optionGroup(group, media)) || !optional(s.media, media))) return false
+  return optional(value.responseTokens, (items) => list(items, text)) && optional(value.practiceRound, (item) => integer(item, 1)) && optional(value.cellCount, (item) => integer(item, 1) && item <= 256) && optional(value.omissionAllowed, (item) => typeof item === 'boolean') && optional(value.allowRepeatedTokens, (item) => typeof item === 'boolean') && optional(value.exposureGap, (item) => typeof item === 'boolean')
 }
 
 export const validChcTaskResponse = (value: unknown): value is ChcTaskResponse => {
@@ -34,6 +34,8 @@ export const validChcTaskResponse = (value: unknown): value is ChcTaskResponse =
   if (value.kind === 'ordered') return keys(value, ['kind', 'tokens']) && list(value.tokens, (item) => item === null || text(item))
   if (value.kind === 'filtered_ordered') return keys(value, ['kind', 'tokens']) && list(value.tokens, text)
   if (value.kind === 'unit_stream') return keys(value, ['kind', 'units']) && list(value.units, validChcUnit)
+  if (value.kind === 'cell') return keys(value, ['kind', 'position']) && integer(value.position, 1)
+  if (value.kind === 'cell_set') return keys(value, ['kind', 'positions']) && list(value.positions, (item) => integer(item, 1)) && new Set(value.positions).size === value.positions.length
   return false
 }
 
@@ -71,21 +73,24 @@ export const validChcIntent = (question: AssessmentQuestionDto, intent: Assessme
     if (response.kind === 'ordered' || response.kind === 'filtered_ordered') {
       if (!Array.isArray(response.tokens) || !step.responseTokens) return false
       const remaining = [...step.responseTokens]
+      const seen = new Set<string>()
       for (const token of response.tokens) {
         if (token === null && response.kind === 'ordered') continue
         if (typeof token !== 'string') return false
+        if (response.kind === 'filtered_ordered' && seen.has(token)) return false
+        seen.add(token)
         const index = remaining.indexOf(token)
         if (index < 0) return false
-        remaining.splice(index, 1)
+        if (!step.allowRepeatedTokens || response.kind === 'filtered_ordered') remaining.splice(index, 1)
       }
       return true
     }
     if (response.kind === 'cell') {
-      const count = step.cellCount ?? step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
+      const count = step.cellCount ?? 0
       return count > 0 && integer(response.position, 1) && response.position <= count
     }
     if (response.kind === 'cell_set') {
-      const count = step.cellCount ?? step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
+      const count = step.cellCount ?? 0
       return count > 0 && list(response.positions, (position) => integer(position, 1) && position <= count) && new Set(response.positions).size === response.positions.length
     }
     return false
@@ -96,8 +101,9 @@ export const validChcIntent = (question: AssessmentQuestionDto, intent: Assessme
   if (observation.event !== step.event && observation.event !== 'interruption' && observation.event !== 'technical_failure') return false
   if (step.unitId !== null && observation.unitId !== step.unitId) return false
   if (observation.playbackCount !== undefined && (step.event !== 'playback' || step.timing.playbackLimit === null || observation.playbackCount > step.timing.playbackLimit)) return false
-  if (step.event === 'practice' && (step.practiceRound === undefined || observation.practiceRound !== step.practiceRound || step.responseKind !== 'option')) return false
+  if (step.event === 'practice' && (step.practiceRound === undefined || observation.practiceRound !== step.practiceRound || observation.unitResponse?.response?.kind !== 'option')) return false
   if (observation.unitResponse && (observation.unitResponse.unitId !== step.unitId || (observation.unitResponse.state === 'omitted' ? !(step.event === 'response' && step.omissionAllowed === true && observation.unitResponse.response === undefined) : observation.unitResponse.state !== 'submitted' || !responseValid(observation.unitResponse.response)))) return false
+  if (step.event === 'response' && observation.unitResponse?.state === 'submitted' && observation.unitResponse.response?.kind !== step.responseKind) return false
   if (observation.response && !responseValid(observation.response)) return false
   return true
 }

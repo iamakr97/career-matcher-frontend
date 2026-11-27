@@ -19,6 +19,10 @@ export const router = createBrowserRouter([
     element: <AssessmentPage />,
   },
   {
+    path: '/assessment/:assessmentId',
+    element: <AssessmentPage />,
+  },
+  {
     path: '*',
     element: <PageNotFound />,
   },

@@ -12,10 +12,10 @@ export interface PisaBaseline {
 interface PisaEditorBase { allowedActions: PisaAction[]; constraints?: string[] }
 export type PisaEditor =
   | (PisaEditorBase & { kind: 'meaning_builder'; variant: 'meaning_roles_3part_v1'; roles: PisaRole[] })
-  | (PisaEditorBase & { kind: 'comic_builder'; variant: 'comic_locked_panels_v1'; pieces: PisaPiece[]; pieceAssets?: PisaPieceAsset[]; actions?: string[]; panelCount: number; lockedPanels: number })
+  | (PisaEditorBase & { kind: 'comic_builder'; variant: 'comic_locked_panels_v1'; pieces: PisaPiece[]; pieceAssets?: PisaPieceAsset[]; actions?: string[]; panelCount: number; lockedPanels: number; shortLineLimit?: number })
   | (PisaEditorBase & { kind: 'room_layout'; variant: 'paired_visual_layout_v1'; pieces: PisaPiece[]; pieceAssets?: PisaPieceAsset[]; canvasCount: number; lockedLayers: string[] })
-  | (PisaEditorBase & { kind: 'sign_designer'; variant: 'sign_asset_palette_v1'; pieces: PisaPiece[]; pieceAssets: PisaPieceAsset[]; canvasCount: number; allowText: boolean; editableCanvas: { width: number; height: number } })
-  | (PisaEditorBase & { kind: 'poster_editor'; variant: 'poster_template_v1'; pieces: PisaPiece[]; pieceAssets: PisaPieceAsset[]; protectedText: string[]; baselineId: string; baselineMediaId: string; editableDecorationIds: string[]; baselineLocked: boolean; canvasCount: number })
+  | (PisaEditorBase & { kind: 'sign_designer'; variant: 'sign_asset_palette_v1'; pieces: PisaPiece[]; pieceAssets?: PisaPieceAsset[]; canvasCount: number; allowText: boolean; editableCanvas: { width: number; height: number } })
+  | (PisaEditorBase & { kind: 'poster_editor'; variant: 'poster_template_v1'; pieces: PisaPiece[]; pieceAssets?: PisaPieceAsset[]; protectedText: string[]; baselineId: string; baselineMediaId: string; baselineTemplateUrl?: string; editableDecorationIds: string[]; baselineLocked: boolean; canvasCount: number })
   | (PisaEditorBase & { kind: 'park_planner'; variant: 'paired_space_plan_locked_v1'; groups: string[]; zones: string[]; times: string[]; rules: string[]; boards: number; lockedLayers: string[] })
   | (PisaEditorBase & { kind: 'shop_flow'; variant: 'social_flow_extended_v1'; participants: string[]; actions: string[]; items: string[]; places: string[]; conditions: string[]; maxSteps: number; minConnectedSteps: number })
   | (PisaEditorBase & { kind: 'water_schedule'; variant: 'timed_allocation_template_v1'; baseline: PisaBaseline; baselineId: string; groupLabels: { code: string; label: string }[]; totalMinutes: number; resourceCount: number; resourceLabel?: string; rules: string[]; originalLocked: boolean })
@@ -23,7 +23,7 @@ export type PisaEditor =
   | (PisaEditorBase & { kind: 'drying_cause_map'; variant: 'causal_pair_v1'; parts: { cause: PisaPiece[]; changesByCause: { causeKey: string; changes: PisaPiece[] }[]; effect: PisaPiece[] }; links: string[]; outputCount: number })
   | (PisaEditorBase & { kind: 'cloth_experiment'; variant: 'cloth_experiment_v1'; baseline: PisaBaseline; sizes: string[]; cupCounts: number[]; checks: PisaPiece[]; repeatCounts: number[] })
   | (PisaEditorBase & { kind: 'cloth_experiment'; variant: 'general_experiment_v1'; baseline: PisaBaseline; changeChoices: string[]; checks: PisaPiece[]; repeatCounts: number[] })
-  | (PisaEditorBase & { kind: 'story_revision_builder'; variant: 'story_revision_v1'; baseline: PisaBaseline; storyPieces: { groups: { key: string; choices: PisaPiece[] }[] }; optionalShortLine: boolean })
+  | (PisaEditorBase & { kind: 'story_revision_builder'; variant: 'story_revision_v1'; baseline: PisaBaseline; storyPieces: { groups: { key: string; choices: PisaPiece[] }[] }; optionalShortLine: boolean; shortLineLimit?: number })
   | (PisaEditorBase & { kind: 'investigation_builder'; variant: 'investigation_builder_v1'; lockedQuestion: string; materials: PisaPiece[]; planNodes: string[]; links: string[] })
 
 export interface PisaPose { x: number; y: number; width: number; height: number; rotationDeg: number; color?: string }

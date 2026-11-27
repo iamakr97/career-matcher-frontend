@@ -6,7 +6,6 @@ export type AssessmentProcessingPhase = 'not_started' | 'administering' | 'await
 export type AssessmentModelStatus = 'not_started' | 'active' | 'complete' | 'incomplete'
 export type AssessmentStepOperation = 'step' | 'draft' | 'submit' | 'skip' | 'interrupt'
 export type AssessmentReportStatus = 'pending' | 'processing' | 'failed' | 'ready'
-export type PsychometricParticipantGender = 'male' | 'female'
 export type PsychometricPresentationMode = 'text' | 'mixed' | 'visual' | 'audio' | 'interactive'
 export type PsychometricPresentationLayout = 'option_list' | 'option_cards' | 'scenario_choice' | 'image_cards' | 'image_comparison' | 'activity_workspace' | 'performance_task'
 export type PsychometricMediaType = 'image' | 'audio' | 'video' | 'svg'
@@ -14,7 +13,7 @@ export type PsychometricMediaRole = 'supporting' | 'stimulus' | 'option_icon' | 
 export type PsychometricSelectionMode = 'single' | 'multiple'
 export type PsychometricResponseFamily = 'single_select' | 'picture_comparison' | 'text_comparison' | 'situational_choice' | 'frequency' | 'feeling_intensity' | 'agreement' | 'functioning_degree' | 'future_expectation' | 'NEEDS_5' | 'REASONS_4' | 'confidence_5' | 'expectation_5' | 'intention_5' | 'experience_status' | 'support_status' | 'barrier_impact'
 
-export interface AssessmentParticipant { name: string; email: string; phone: string; class: number; ageGroup: string; gender: PsychometricParticipantGender; location: string }
+export interface AssessmentParticipant { name: string; email: string }
 export interface CreateAssessmentDto { participant: AssessmentParticipant }
 export interface AssessmentProgressDto { totalModels: number; completedModels: number; answeredQuestions: number; plannedQuestions: number }
 export interface AssessmentModelProgressDto { model: PsychometricModel; name: string; status: AssessmentModelStatus; answeredQuestions: number; plannedQuestions: number }
@@ -34,7 +33,7 @@ export interface AssessmentStepTimingDto { studyExposureMs: number | null; perTo
 export interface ChcStudyPairDto { cue: string; target?: string; targetSequence?: string[]; context?: string }
 export interface ChcStudyFactDto { text?: string; signal?: string; object?: string; destination?: string; event?: string; location?: string }
 export interface AssessmentPerformanceStimulusDto { text?: string; cue?: string; tokens?: string[]; numberTokens?: number[]; gridRows?: number; gridColumns?: number; highlightOrder?: string[]; cells?: string[]; responseCells?: string[]; current?: string; rowA?: string[]; rowB?: string[]; sample?: string; candidate?: string; studyPairs?: ChcStudyPairDto[]; studyFacts?: ChcStudyFactDto[]; studyText?: string; optionGroup?: AssessmentOptionGroupDto; media?: AssessmentMediaDto }
-export interface AssessmentPerformanceStepDto { taskMode: PsychometricPerformanceMode; questionType: PsychometricChcQuestionType; responseFamily: PsychometricChcResponseFamily; phase: string; unitId: string | null; event: ChcAdministrationEvent; responseKind: ChcResponseKind | null; optionGroupId?: string; unitIndex: number | null; unitCount: number | null; timing: AssessmentStepTimingDto; stimulus?: AssessmentPerformanceStimulusDto; responseTokens?: string[]; practiceRound?: number; cellCount?: number; omissionAllowed?: boolean }
+export interface AssessmentPerformanceStepDto { taskMode: PsychometricPerformanceMode; questionType: PsychometricChcQuestionType; responseFamily: PsychometricChcResponseFamily; phase: string; unitId: string | null; event: ChcAdministrationEvent; currentEvent?: ChcAdministrationEvent; responseKind: ChcResponseKind | null; optionGroupId?: string; unitIndex: number | null; unitCount: number | null; timing: AssessmentStepTimingDto; stimulus?: AssessmentPerformanceStimulusDto; responseTokens?: string[]; practiceRound?: number; cellCount?: number; omissionAllowed?: boolean; allowRepeatedTokens?: boolean; exposureGap?: number }
 export interface AssessmentPerformanceInteractionDto { kind: 'performance'; protocol: AssessmentPerformanceStepDto }
 export interface AssessmentConstructedInteractionDto { kind: 'constructed_activity'; requiredOutputs: 1 | 2; editor: PisaEditor; draft: PisaResponse | null }
 export type AssessmentInteractionDto = AssessmentChoiceInteractionDto | AssessmentPerformanceInteractionDto | AssessmentConstructedInteractionDto

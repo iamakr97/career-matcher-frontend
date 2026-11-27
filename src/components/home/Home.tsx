@@ -90,7 +90,7 @@ const Home = () => (
               number="02"
               audience="For students"
               title="Start Assessment"
-              description="The planned student flow will collect basic information, guide students through an assessment, and provide a report once scoring and reporting are built."
+              description="Enter your name and email to begin the assessment and continue toward your report."
               to="/assessment"
             />
           </div>

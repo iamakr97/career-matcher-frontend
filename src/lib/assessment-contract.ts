@@ -1,5 +1,6 @@
 import type { AssessmentReportResponseDto, AssessmentStateDto } from '@/types/assessment'
 import type { ApiResponse } from '@/types/common'
+import { validChcStep } from '@/lib/chc-contract'
 
 const models = ['riasec', 'big_five', 'oecd_sses', 'chc', 'pisa_creative_thinking', 'sdt', 'scct']
 const statuses = ['created', 'active', 'paused', 'blocked', 'completed']
@@ -39,7 +40,7 @@ const question = (value: unknown): boolean => {
   if (i.kind === 'choice') {
     if (!member(i.responseFamily, families) || !bounded(i.optionGroupId) || !member(i.selectionMode, ['single', 'multiple'])) return false
   } else if (i.kind === 'performance') {
-    if (!('protocol' in i)) return false
+    if (value.model !== 'chc' || !validChcStep(i.protocol, media)) return false
   } else if (i.kind === 'constructed_activity') {
     if ((i.requiredOutputs !== 1 && i.requiredOutputs !== 2) || !('editor' in i) || !('draft' in i)) return false
   } else return false

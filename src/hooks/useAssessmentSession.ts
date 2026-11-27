@@ -3,7 +3,8 @@ import { useAppDispatch } from '@/store/store'
 import { assessmentApi, useCreateAssessmentMutation, useLazyGetAssessmentQuery, useLazyGetAssessmentReportQuery, useSubmitResponseMutation } from '@/services/assessmentApi'
 import { assessmentError, type AssessmentError } from '@/lib/assessment-errors'
 import { bindAssessmentAccess, clearAssessmentAccess, clearPendingChoice, createAssessmentAccess, newRequestId, readAssessmentAccess, setPendingChoice, type AssessmentAccess } from '@/lib/assessment-access'
-import type { AssessmentParticipant, AssessmentReportResponseDto, AssessmentStateDto, SubmitChoiceResponseDto } from '@/types/assessment'
+import { validChcIntent, validSubmitPayload } from '@/lib/chc-contract'
+import type { AssessmentOperationIntent, AssessmentParticipant, AssessmentReportResponseDto, AssessmentStateDto, SubmitResponseDto } from '@/types/assessment'
 
 type Operation = 'idle' | 'loading' | 'registering' | 'submitting' | 'checking' | 'report'
 const pendingPhase = (state: AssessmentStateDto) => ['awaiting_evaluation', 'finalizing_scientific_results', 'generating_report'].includes(state.phase)
@@ -140,13 +141,17 @@ export const useAssessmentSession = () => {
     finally { finish(token); createResult.reset() }
   }
   const reconcile = async () => refresh()
-  const sendSaved = async (payload: SubmitChoiceResponseDto, identity: string) => {
+  const sendSaved = async (payload: SubmitResponseDto, identity: string) => {
     const token = begin('submitting')
     if (token === null) return
     let failure: AssessmentError | null = null
     try {
       const result = await submit({ assessmentId: identity, payload }).unwrap()
-      if (mounted.current && token === generation.current && session.current?.assessmentId === identity) { commit(result); setError(null) }
+      if (mounted.current && token === generation.current && session.current?.assessmentId === identity) {
+        commit(result)
+        if (session.current?.pending?.payload.requestId === payload.requestId) updateAccess(clearPendingChoice())
+        setError(null)
+      }
     } catch (cause) { if (mounted.current && token === generation.current) { failure = assessmentError(cause); handleError(cause) } }
     finally { finish(token); submitResult.reset() }
     if (failure && !failure.accessLost && mounted.current && token === generation.current) {
@@ -157,18 +162,35 @@ export const useAssessmentSession = () => {
       }
     }
   }
-  const submitChoice = async (selectedOptionId: string) => {
+  const submitOperation = async (intent: AssessmentOperationIntent) => {
     const committed = current.current
     const question = committed?.currentQuestion
     const identity = session.current?.assessmentId
-    if (!committed || !question || !identity || identity !== committed.assessmentId || inFlight.current || session.current?.pending || committed.phase !== 'administering' || committed.status !== 'active' || question.recoveryRequired || question.interaction.kind !== 'choice' || question.interaction.selectionMode !== 'single' || !question.allowedOperations.includes('submit')) return
-    const optionGroupId = question.interaction.optionGroupId
-    const group = question.presentation.options.find((item) => item.groupId === optionGroupId)
-    if (!group?.choices.some((option) => option.optionId === selectedOptionId)) return
-    const payload: SubmitChoiceResponseDto = { attemptId: question.attemptId, requestId: newRequestId(), expectedStateRevision: committed.stateRevision, step: question.currentStep, operation: 'submit', response: { kind: 'choice', selectedOptionId } }
+    if (!committed || !question || !identity || identity !== committed.assessmentId || inFlight.current || session.current?.pending || committed.phase !== 'administering' || committed.status !== 'active' || !question.allowedOperations.includes(intent.operation) || (question.recoveryRequired && intent.operation !== 'interrupt')) return
+    if (question.interaction.kind === 'choice' && (intent.operation !== 'submit' || !('response' in intent) || intent.response.kind !== 'choice')) return
+    if (question.interaction.kind === 'performance' && intent.operation === 'submit' && (!('response' in intent) || intent.response.kind !== 'performance')) return
+    if (question.interaction.kind === 'performance' && !validChcIntent(question, intent)) return
+    if (question.interaction.kind === 'constructed_activity') return
+    const common = { attemptId: question.attemptId, requestId: newRequestId(), expectedStateRevision: committed.stateRevision, step: question.currentStep }
+    let payload: SubmitResponseDto
+    if (intent.operation === 'step') payload = { ...common, ...intent }
+    else if (intent.operation === 'skip') payload = { ...common, ...intent }
+    else if (intent.operation === 'interrupt') payload = { ...common, ...intent }
+    else if (intent.response.kind === 'choice') payload = { ...common, operation: 'submit', response: intent.response }
+    else payload = { ...common, ...intent }
+    if (!validSubmitPayload(payload)) return
     try { updateAccess(setPendingChoice({ assessmentId: identity, payload })) }
     catch { setError({ message: 'This response cannot be saved for recovery in this tab. Please check browser storage and try again.', accessLost: false, ambiguous: false, fields: {} }); return }
     await sendSaved(payload, identity)
+  }
+  const submitChoice = async (selectedOptionId: string) => {
+    const committed = current.current
+    const question = committed?.currentQuestion
+    if (!committed || !question || question.interaction.kind !== 'choice' || question.interaction.selectionMode !== 'single' || !question.allowedOperations.includes('submit')) return
+    const optionGroupId = question.interaction.optionGroupId
+    const group = question.presentation.options.find((item) => item.groupId === optionGroupId)
+    if (!group?.choices.some((option) => option.optionId === selectedOptionId)) return
+    await submitOperation({ operation: 'submit', response: { kind: 'choice', selectedOptionId } })
   }
   const retrySaved = async () => {
     const receipt = session.current?.pending
@@ -182,5 +204,5 @@ export const useAssessmentSession = () => {
     dispatch(assessmentApi.util.resetApiState())
     updateAccess(null); current.current = null; reportRequestedFor.current = null; setState(null); setReport(null); setError(null); setCorrupt(false); setAccessLost(false); setRegistrationPending(null); setPollCount(0)
   }
-  return { access, corrupt, accessLost, state, report, error, operation, registrationPending, pollCount, register, refresh, fetchReport, submitChoice, retrySaved, abandon }
+  return { access, corrupt, accessLost, state, report, error, operation, registrationPending, pollCount, register, refresh, fetchReport, submitChoice, submitOperation, retrySaved, abandon }
 }

@@ -22,7 +22,18 @@ export interface AssessmentOptionDto { optionId: string; text?: string; value?: 
 export interface AssessmentOptionGroupDto { groupId: string; prompt?: string; layout?: PsychometricPresentationLayout; choices: AssessmentOptionDto[] }
 export interface AssessmentPresentationDto { mode: PsychometricPresentationMode; layout: PsychometricPresentationLayout; title?: string; media: AssessmentMediaDto[]; options: AssessmentOptionGroupDto[] }
 export interface AssessmentChoiceInteractionDto { kind: 'choice'; responseFamily: PsychometricResponseFamily; optionGroupId: string; selectionMode: PsychometricSelectionMode }
-export interface AssessmentPerformanceInteractionDto { kind: 'performance'; protocol: unknown }
+export type PsychometricPerformanceMode = 'static_choice' | 'audio_comprehension' | 'visual_memory' | 'sequence_memory' | 'learn_retain_retrieve' | 'timed_fluency'
+export type PsychometricChcQuestionType = 'single_select' | 'multi_trial_single_select' | 'ordered_sequence' | 'ordered_position_sequence' | 'filtered_ordered_sequence' | 'multi_trial_binary' | 'multi_trial_multi_select'
+export type PsychometricChcResponseFamily = 'picture_pattern_selection' | 'logic_number_selection' | 'shape_spatial' | 'picture_memory_order' | 'number_letter_memory' | 'learn_remember' | 'fast_matching' | 'words_pictures_listening'
+export type ChcResponseKind = 'option' | 'ordered' | 'filtered_ordered' | 'unit_stream' | 'cell' | 'cell_set'
+export type ChcUnitState = 'submitted' | 'omitted' | 'not_presented' | 'invalid'
+export type ChcAdministrationEvent = 'presentation' | 'practice' | 'study' | 'retention' | 'cue' | 'interference' | 'playback' | 'response' | 'interruption' | 'technical_failure'
+export interface AssessmentStepTimingDto { studyExposureMs: number | null; perTokenExposureMs: number | null; interTokenGapMs: number | null; retentionDelayMs: number | null; ruleCueExposureMs: number | null; interferenceDurationMs: number | null; responseWindowMs: number | null; interUnitGapMs: number | null; playbackLimit: number | null; allowReplay: boolean; studyVisibleDuringResponse: boolean }
+export interface ChcStudyPairDto { cue: string; target?: string; targetSequence?: string[]; context?: string }
+export interface ChcStudyFactDto { text?: string; signal?: string; object?: string; destination?: string; event?: string; location?: string }
+export interface AssessmentPerformanceStimulusDto { text?: string; cue?: string; tokens?: string[]; numberTokens?: number[]; gridRows?: number; gridColumns?: number; highlightOrder?: string[]; cells?: string[]; responseCells?: string[]; current?: string; rowA?: string[]; rowB?: string[]; sample?: string; candidate?: string; studyPairs?: ChcStudyPairDto[]; studyFacts?: ChcStudyFactDto[]; studyText?: string; optionGroup?: AssessmentOptionGroupDto; media?: AssessmentMediaDto }
+export interface AssessmentPerformanceStepDto { taskMode: PsychometricPerformanceMode; questionType: PsychometricChcQuestionType; responseFamily: PsychometricChcResponseFamily; phase: string; unitId: string | null; event: ChcAdministrationEvent; responseKind: ChcResponseKind | null; optionGroupId?: string; unitIndex: number | null; unitCount: number | null; timing: AssessmentStepTimingDto; stimulus?: AssessmentPerformanceStimulusDto; responseTokens?: string[] }
+export interface AssessmentPerformanceInteractionDto { kind: 'performance'; protocol: AssessmentPerformanceStepDto }
 export interface AssessmentConstructedInteractionDto { kind: 'constructed_activity'; requiredOutputs: 1 | 2; editor: unknown; draft: unknown }
 export type AssessmentInteractionDto = AssessmentChoiceInteractionDto | AssessmentPerformanceInteractionDto | AssessmentConstructedInteractionDto
 export interface AssessmentQuestionDto { attemptId: string; questionId: string; model: PsychometricModel; questionText?: string; description?: string; helperText?: string; instructions?: string; presentation: AssessmentPresentationDto; interaction: AssessmentInteractionDto; currentStep: string; allowedOperations: AssessmentStepOperation[]; recoveryRequired: boolean }
@@ -30,6 +41,22 @@ export interface AssessmentStateDto { assessmentId: string; status: AssessmentLi
 export interface SubmitResponseBaseDto { attemptId: string; requestId: string; expectedStateRevision: number; step: string }
 export interface AssessmentChoiceResponse { kind: 'choice'; selectedOptionId: string }
 export interface SubmitChoiceResponseDto extends SubmitResponseBaseDto { operation: 'submit'; response: AssessmentChoiceResponse }
-export type SubmitResponseDto = SubmitChoiceResponseDto
+export interface ChcOptionResponse { kind: 'option'; optionId: string }
+export interface ChcOrderedResponse { kind: 'ordered'; tokens: (string | null)[] }
+export interface ChcFilteredOrderedResponse { kind: 'filtered_ordered'; tokens: string[] }
+export interface ChcCellResponse { kind: 'cell'; position: number }
+export interface ChcCellSetResponse { kind: 'cell_set'; positions: number[] }
+export type ChcUnitItemResponse = ChcOptionResponse | ChcCellResponse | ChcCellSetResponse
+export interface ChcUnitResponse { unitId: string; state: ChcUnitState; response?: ChcUnitItemResponse; elapsedMs?: number }
+export interface ChcUnitStreamResponse { kind: 'unit_stream'; units: ChcUnitResponse[] }
+export type ChcTaskResponse = ChcOptionResponse | ChcOrderedResponse | ChcFilteredOrderedResponse | ChcUnitStreamResponse
+export interface AssessmentPerformanceResponse { kind: 'performance'; response: ChcTaskResponse }
+export interface ChcObservationInputDto { event: ChcAdministrationEvent; unitId?: string; observedElapsedMs?: number; observedDurationMs?: number; playbackCount?: number; practiceRound?: number; unitResponse?: ChcUnitResponse; response?: ChcTaskResponse; reason?: string }
+export interface SubmitPerformanceResponseDto extends SubmitResponseBaseDto { operation: 'submit'; response: AssessmentPerformanceResponse; observation?: ChcObservationInputDto }
+export interface SubmitChcStepDto extends SubmitResponseBaseDto { operation: 'step'; observation: ChcObservationInputDto }
+export interface SubmitSkipDto extends SubmitResponseBaseDto { operation: 'skip'; reason: string }
+export interface SubmitChcInterruptionDto extends SubmitResponseBaseDto { operation: 'interrupt'; reason: string; observation?: ChcObservationInputDto }
+export type SubmitResponseDto = SubmitChoiceResponseDto | SubmitPerformanceResponseDto | SubmitChcStepDto | SubmitSkipDto | SubmitChcInterruptionDto
+export type AssessmentOperationIntent = Omit<SubmitChoiceResponseDto, keyof SubmitResponseBaseDto> | Omit<SubmitPerformanceResponseDto, keyof SubmitResponseBaseDto> | Omit<SubmitChcStepDto, keyof SubmitResponseBaseDto> | Omit<SubmitSkipDto, keyof SubmitResponseBaseDto> | Omit<SubmitChcInterruptionDto, keyof SubmitResponseBaseDto>
 export interface AssessmentReportStatusDto { reportId: string; assessmentId: string; status: AssessmentReportStatus; generatedAt: string | null }
 export interface AssessmentReportResponseDto extends AssessmentReportStatusDto { html: string | null }

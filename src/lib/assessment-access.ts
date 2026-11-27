@@ -1,9 +1,10 @@
 import { validLocator } from '@/lib/assessment-contract'
-import type { SubmitChoiceResponseDto } from '@/types/assessment'
+import { validSubmitPayload } from '@/lib/chc-contract'
+import type { SubmitResponseDto } from '@/types/assessment'
 
 const key = 'career-matcher.assessment.session'
-export interface PendingChoice { assessmentId: string; payload: SubmitChoiceResponseDto }
-export interface AssessmentAccess { accessSecret: string; assessmentId: string | null; pending?: PendingChoice }
+export interface PendingSubmission { assessmentId: string; payload: SubmitResponseDto }
+export interface AssessmentAccess { accessSecret: string; assessmentId: string | null; pending?: PendingSubmission }
 const canonicalSecret = (value: unknown): value is string => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value)) return false
   try {
@@ -12,11 +13,11 @@ const canonicalSecret = (value: unknown): value is string => {
   } catch { return false }
 }
 const encode = (bytes: Uint8Array): string => btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-const validPending = (value: unknown, assessmentId: string | null): value is PendingChoice => {
+const validPending = (value: unknown, assessmentId: string | null): value is PendingSubmission => {
   if (!value || typeof value !== 'object' || !assessmentId) return false
-  const receipt = value as Partial<PendingChoice>
+  const receipt = value as Partial<PendingSubmission>
   const p = receipt.payload
-  return Object.keys(receipt).sort().join(',') === 'assessmentId,payload' && receipt.assessmentId === assessmentId && !!p && Object.keys(p).sort().join(',') === 'attemptId,expectedStateRevision,operation,requestId,response,step' && /^[a-fA-F0-9]{24}$/.test(p.attemptId) && typeof p.requestId === 'string' && p.requestId.length > 0 && p.requestId.length <= 128 && Array.from(p.requestId).every((character) => { const code = character.charCodeAt(0); return code > 31 && code !== 127 }) && Number.isSafeInteger(p.expectedStateRevision) && p.expectedStateRevision >= 0 && typeof p.step === 'string' && p.step.length > 0 && p.step.length <= 128 && p.operation === 'submit' && p.response?.kind === 'choice' && Object.keys(p.response).sort().join(',') === 'kind,selectedOptionId' && typeof p.response.selectedOptionId === 'string' && p.response.selectedOptionId.length > 0 && p.response.selectedOptionId.length <= 128
+  return Object.keys(receipt).sort().join(',') === 'assessmentId,payload' && receipt.assessmentId === assessmentId && validSubmitPayload(p)
 }
 export const readAssessmentAccess = (): AssessmentAccess | null => {
   const raw = sessionStorage.getItem(key)
@@ -39,7 +40,7 @@ export const bindAssessmentAccess = (assessmentId: string): AssessmentAccess => 
   if (!access || (access.assessmentId && access.assessmentId !== assessmentId)) throw new Error('session changed')
   return write({ ...access, assessmentId })
 }
-export const setPendingChoice = (pending: PendingChoice): AssessmentAccess => {
+export const setPendingChoice = (pending: PendingSubmission): AssessmentAccess => {
   const access = readAssessmentAccess()
   if (!access || !validPending(pending, access.assessmentId) || access.pending) throw new Error('pending response unavailable')
   return write({ ...access, pending })

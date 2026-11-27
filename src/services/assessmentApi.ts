@@ -2,7 +2,7 @@ import { createApi } from '@reduxjs/toolkit/query/react'
 import { readAssessmentAccess } from '@/lib/assessment-access'
 import { parseReport, parseState, unwrap, validLocator } from '@/lib/assessment-contract'
 import { baseQuery } from '@/services/api'
-import type { AssessmentReportResponseDto, AssessmentStateDto, CreateAssessmentDto, SubmitChoiceResponseDto } from '@/types/assessment'
+import type { AssessmentReportResponseDto, AssessmentStateDto, CreateAssessmentDto, SubmitResponseDto } from '@/types/assessment'
 
 const root = 'career-matcher/assessment'
 const authorization = (assessmentId?: string): Headers => {
@@ -23,7 +23,7 @@ export const assessmentApi = createApi({
       query: ({ assessmentId }) => ({ url: `${root}/${encodeURIComponent(assessmentId)}`, method: 'GET', headers: authorization(assessmentId), cache: 'no-store' }),
       transformResponse: (value: unknown, _meta, arg) => unwrap(value, (data) => parseState(data, arg.assessmentId)),
     }),
-    submitResponse: builder.mutation<AssessmentStateDto, { assessmentId: string; payload: SubmitChoiceResponseDto }>({
+    submitResponse: builder.mutation<AssessmentStateDto, { assessmentId: string; payload: SubmitResponseDto }>({
       query: ({ assessmentId, payload }) => ({ url: `${root}/${encodeURIComponent(assessmentId)}/submit-response`, method: 'POST', body: payload, headers: authorization(assessmentId), cache: 'no-store' }),
       transformResponse: (value: unknown, _meta, arg) => unwrap(value, (data) => parseState(data, arg.assessmentId)),
     }),

@@ -1,10 +1,5 @@
-import ComingSoon from '@/components/common/ComingSoon'
+import { Assessment } from '@/components/assessment/Assessment'
 
-const AssessmentPage = () => (
-  <ComingSoon
-    title="Start Assessment"
-    description="The guided student assessment, scoring, and report experience are still being developed."
-  />
-)
+const AssessmentPage = () => <Assessment />
 
 export default AssessmentPage

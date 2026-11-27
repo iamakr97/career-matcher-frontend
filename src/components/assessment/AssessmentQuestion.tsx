@@ -1,0 +1,14 @@
+import { useEffect, useRef, useState } from 'react'
+import { AssessmentMedia } from '@/components/assessment/AssessmentMedia'
+import { AssessmentStatus } from '@/components/assessment/AssessmentStatus'
+import { ChoiceQuestion } from '@/components/assessment/ChoiceQuestion'
+import type { AssessmentQuestionDto } from '@/types/assessment'
+interface Props { assessmentId: string; question: AssessmentQuestionDto; busy: boolean; locked: boolean; onSubmit: (id: string) => void; onCheck: () => void }
+export const AssessmentQuestion = ({ assessmentId, question, busy, locked, onSubmit, onCheck }: Props) => {
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [failedMedia, setFailedMedia] = useState<string[]>(() => question.presentation.media.filter((item) => !question.presentation.options.some((group) => group.choices.some((option) => option.media?.mediaId === item.mediaId))).map((item) => item.mediaId))
+  useEffect(() => { heading.current?.focus() }, [assessmentId, question.attemptId, question.currentStep])
+  const availability = (id: string, ready: boolean) => setFailedMedia((old) => ready ? old.filter((item) => item !== id) : old.includes(id) ? old : [...old, id])
+  if (question.recoveryRequired) return <AssessmentStatus title="Response recovery needed" description="Check the saved assessment state before continuing." onCheck={onCheck} busy={busy} />
+  return <section className="rounded-xl border bg-card p-5 shadow-sm sm:p-8"><h2 ref={heading} tabIndex={-1} className="text-xl font-semibold outline-none">{question.presentation.title && question.presentation.title !== question.questionText ? question.presentation.title : 'Current question'}</h2>{question.questionText && <p className="mt-4 whitespace-pre-wrap break-words text-lg">{question.questionText}</p>}{question.description && <p className="mt-3 whitespace-pre-wrap break-words text-sm">{question.description}</p>}{question.instructions && <p className="mt-3 whitespace-pre-wrap break-words text-sm">{question.instructions}</p>}{question.helperText && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{question.helperText}</p>}{question.presentation.media.filter((item) => !question.presentation.options.some((group) => group.choices.some((option) => option.media?.mediaId === item.mediaId))).map((item) => <div key={`${item.mediaId}:${item.url}`} className="my-4"><AssessmentMedia media={item} onAvailability={availability} /></div>)}<div className="mt-6">{question.interaction.kind === 'choice' ? <ChoiceQuestion assessmentId={assessmentId} question={question} interaction={question.interaction} busy={busy} locked={locked || failedMedia.length > 0} onSubmit={onSubmit} /> : <AssessmentStatus title="This activity is not available yet" description="Your assessment is saved. CHC and PISA activities need a later frontend update before you can continue here." onCheck={onCheck} busy={busy} />}</div></section>
+}

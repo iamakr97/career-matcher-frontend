@@ -1,0 +1,3 @@
+import { Button } from '@/components/ui/button'
+interface Props { title: string; description: string; onCheck?: () => void; onRetry?: () => void; busy?: boolean }
+export const AssessmentStatus = ({ title, description, onCheck, onRetry, busy }: Props) => <section className="rounded-xl border bg-card p-6" aria-live="polite"><h2 className="text-xl font-semibold">{title}</h2><p className="mt-2 text-sm text-muted-foreground">{description}</p><div className="mt-5 flex flex-wrap gap-2">{onCheck && <Button variant="outline" onClick={onCheck} disabled={busy}>Check again</Button>}{onRetry && <Button onClick={onRetry} disabled={busy}>Retry saved response</Button>}</div></section>

@@ -1,3 +1,5 @@
+import type { PisaEditor, PisaResponse } from '@/types/pisa-assessment'
+
 export type PsychometricModel = 'riasec' | 'big_five' | 'oecd_sses' | 'chc' | 'pisa_creative_thinking' | 'sdt' | 'scct'
 export type AssessmentLifecycleStatus = 'created' | 'active' | 'paused' | 'blocked' | 'completed'
 export type AssessmentProcessingPhase = 'not_started' | 'administering' | 'awaiting_evaluation' | 'finalizing_scientific_results' | 'generating_report' | 'report_failed' | 'report_ready'
@@ -32,9 +34,9 @@ export interface AssessmentStepTimingDto { studyExposureMs: number | null; perTo
 export interface ChcStudyPairDto { cue: string; target?: string; targetSequence?: string[]; context?: string }
 export interface ChcStudyFactDto { text?: string; signal?: string; object?: string; destination?: string; event?: string; location?: string }
 export interface AssessmentPerformanceStimulusDto { text?: string; cue?: string; tokens?: string[]; numberTokens?: number[]; gridRows?: number; gridColumns?: number; highlightOrder?: string[]; cells?: string[]; responseCells?: string[]; current?: string; rowA?: string[]; rowB?: string[]; sample?: string; candidate?: string; studyPairs?: ChcStudyPairDto[]; studyFacts?: ChcStudyFactDto[]; studyText?: string; optionGroup?: AssessmentOptionGroupDto; media?: AssessmentMediaDto }
-export interface AssessmentPerformanceStepDto { taskMode: PsychometricPerformanceMode; questionType: PsychometricChcQuestionType; responseFamily: PsychometricChcResponseFamily; phase: string; unitId: string | null; event: ChcAdministrationEvent; responseKind: ChcResponseKind | null; optionGroupId?: string; unitIndex: number | null; unitCount: number | null; timing: AssessmentStepTimingDto; stimulus?: AssessmentPerformanceStimulusDto; responseTokens?: string[] }
+export interface AssessmentPerformanceStepDto { taskMode: PsychometricPerformanceMode; questionType: PsychometricChcQuestionType; responseFamily: PsychometricChcResponseFamily; phase: string; unitId: string | null; event: ChcAdministrationEvent; responseKind: ChcResponseKind | null; optionGroupId?: string; unitIndex: number | null; unitCount: number | null; timing: AssessmentStepTimingDto; stimulus?: AssessmentPerformanceStimulusDto; responseTokens?: string[]; practiceRound?: number; cellCount?: number; omissionAllowed?: boolean }
 export interface AssessmentPerformanceInteractionDto { kind: 'performance'; protocol: AssessmentPerformanceStepDto }
-export interface AssessmentConstructedInteractionDto { kind: 'constructed_activity'; requiredOutputs: 1 | 2; editor: unknown; draft: unknown }
+export interface AssessmentConstructedInteractionDto { kind: 'constructed_activity'; requiredOutputs: 1 | 2; editor: PisaEditor; draft: PisaResponse | null }
 export type AssessmentInteractionDto = AssessmentChoiceInteractionDto | AssessmentPerformanceInteractionDto | AssessmentConstructedInteractionDto
 export interface AssessmentQuestionDto { attemptId: string; questionId: string; model: PsychometricModel; questionText?: string; description?: string; helperText?: string; instructions?: string; presentation: AssessmentPresentationDto; interaction: AssessmentInteractionDto; currentStep: string; allowedOperations: AssessmentStepOperation[]; recoveryRequired: boolean }
 export interface AssessmentStateDto { assessmentId: string; status: AssessmentLifecycleStatus; phase: AssessmentProcessingPhase; stateRevision: number; activeModel: PsychometricModel | null; startedAt: string | null; completedAt: string | null; progress: AssessmentProgressDto; models: AssessmentModelProgressDto[]; currentQuestion: AssessmentQuestionDto | null }
@@ -51,12 +53,26 @@ export interface ChcUnitResponse { unitId: string; state: ChcUnitState; response
 export interface ChcUnitStreamResponse { kind: 'unit_stream'; units: ChcUnitResponse[] }
 export type ChcTaskResponse = ChcOptionResponse | ChcOrderedResponse | ChcFilteredOrderedResponse | ChcUnitStreamResponse
 export interface AssessmentPerformanceResponse { kind: 'performance'; response: ChcTaskResponse }
+export interface AssessmentCreativeResponse { kind: 'constructed_activity'; output: PisaResponse }
+export interface CreativeObservationInputDto { mediaLoaded?: boolean; practiceCompleted?: boolean; technicalEvents?: string[] }
 export interface ChcObservationInputDto { event: ChcAdministrationEvent; unitId?: string; observedElapsedMs?: number; observedDurationMs?: number; playbackCount?: number; practiceRound?: number; unitResponse?: ChcUnitResponse; response?: ChcTaskResponse; reason?: string }
 export interface SubmitPerformanceResponseDto extends SubmitResponseBaseDto { operation: 'submit'; response: AssessmentPerformanceResponse; observation?: ChcObservationInputDto }
 export interface SubmitChcStepDto extends SubmitResponseBaseDto { operation: 'step'; observation: ChcObservationInputDto }
 export interface SubmitSkipDto extends SubmitResponseBaseDto { operation: 'skip'; reason: string }
-export interface SubmitChcInterruptionDto extends SubmitResponseBaseDto { operation: 'interrupt'; reason: string; observation?: ChcObservationInputDto }
-export type SubmitResponseDto = SubmitChoiceResponseDto | SubmitPerformanceResponseDto | SubmitChcStepDto | SubmitSkipDto | SubmitChcInterruptionDto
-export type AssessmentOperationIntent = Omit<SubmitChoiceResponseDto, keyof SubmitResponseBaseDto> | Omit<SubmitPerformanceResponseDto, keyof SubmitResponseBaseDto> | Omit<SubmitChcStepDto, keyof SubmitResponseBaseDto> | Omit<SubmitSkipDto, keyof SubmitResponseBaseDto> | Omit<SubmitChcInterruptionDto, keyof SubmitResponseBaseDto>
+export interface SubmitChcInterruptionDto extends SubmitResponseBaseDto { operation: 'interrupt'; reason: string; observation?: ChcObservationInputDto | CreativeObservationInputDto }
+export interface SubmitCreativeStepDto extends SubmitResponseBaseDto { operation: 'step'; observation: CreativeObservationInputDto }
+export interface SubmitCreativeDraftDto extends SubmitResponseBaseDto { operation: 'draft'; response: AssessmentCreativeResponse; observation?: CreativeObservationInputDto }
+export interface SubmitCreativeFinalDto extends SubmitResponseBaseDto { operation: 'submit'; response: AssessmentCreativeResponse; observation?: CreativeObservationInputDto }
+export type SubmitResponseDto = SubmitChoiceResponseDto | SubmitPerformanceResponseDto | SubmitChcStepDto | SubmitSkipDto | SubmitChcInterruptionDto | SubmitCreativeStepDto | SubmitCreativeDraftDto | SubmitCreativeFinalDto
+export type AssessmentOperationIntent =
+  | { operation: 'submit'; response: AssessmentChoiceResponse }
+  | { operation: 'submit'; response: AssessmentPerformanceResponse; observation?: ChcObservationInputDto }
+  | { operation: 'submit'; response: AssessmentCreativeResponse; observation?: CreativeObservationInputDto }
+  | { operation: 'step'; observation: ChcObservationInputDto }
+  | { operation: 'step'; observation: CreativeObservationInputDto }
+  | { operation: 'draft'; response: AssessmentCreativeResponse; observation?: CreativeObservationInputDto }
+  | { operation: 'skip'; reason: string }
+  | { operation: 'interrupt'; reason: string; observation?: ChcObservationInputDto | CreativeObservationInputDto }
 export interface AssessmentReportStatusDto { reportId: string; assessmentId: string; status: AssessmentReportStatus; generatedAt: string | null }
 export interface AssessmentReportResponseDto extends AssessmentReportStatusDto { html: string | null }
+

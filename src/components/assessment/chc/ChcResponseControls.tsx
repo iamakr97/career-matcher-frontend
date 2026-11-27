@@ -17,9 +17,8 @@ export const ChcResponseControls = ({ step, group, busy, mediaReady, onAnswer, o
         : group ? 'option' : step.stimulus?.gridRows && step.stimulus.gridColumns ? 'cell' : null
     : step.responseKind
   const tokens = step.responseTokens ?? []
-  const rows = step.stimulus?.gridRows
   const columns = step.stimulus?.gridColumns
-  const cellCount = rows && columns ? rows * columns : step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
+  const cellCount = step.cellCount ?? step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
   const validOption = selected !== null && !!group?.choices.some((choice) => choice.optionId === selected)
   const usable = !busy && mediaReady && failedMedia.length === 0 && (kind === 'option' ? validOption : kind === 'cell' ? positions.length === 1 : kind === 'cell_set' ? positions.length > 0 : ordered.length > 0)
   const submit = () => {

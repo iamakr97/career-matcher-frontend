@@ -32,8 +32,8 @@ export const ChcQuestion = ({ question, step, busy, locked, onSubmit, onCheck }:
   }
   const { elapsedMs, remainingMs, stop } = useChcStepTiming(duration, mediaReady && !hidden && !busy && !locked && step.event !== 'playback', (elapsed) => {
     if (step.event === 'response') {
-      setHidden(true)
-      setNotice('The response time ended. Check the current activity before continuing.')
+      if (step.omissionAllowed === true && step.unitId && step.unitIndex !== null && step.taskMode !== 'audio_comprehension' && question.allowedOperations.includes('step') && duration !== null && duration > 0) send({ operation: 'step', observation: { event: 'response', unitId: step.unitId, unitResponse: { unitId: step.unitId, state: 'omitted', elapsedMs: elapsed }, observedElapsedMs: elapsed } })
+      else { setHidden(true); setNotice('The response time ended. This activity cannot continue without an authorized omission or interruption.') }
     } else if (question.allowedOperations.includes('step')) send({ operation: 'step', observation: { event: step.event, ...(step.unitId ? { unitId: step.unitId } : {}), observedDurationMs: elapsed } })
     else { setHidden(true); setNotice('This timed activity cannot continue. Check its current state.') }
   })
@@ -49,7 +49,7 @@ export const ChcQuestion = ({ question, step, busy, locked, onSubmit, onCheck }:
     return () => document.removeEventListener('visibilitychange', visibility)
   }, [step.event, stop])
   const group = step.stimulus?.optionGroup ?? question.presentation.options.find((item) => item.groupId === step.optionGroupId)
-  const stream = step.responseKind === 'unit_stream' || step.questionType.startsWith('multi_trial_')
+  const stream = step.responseKind === 'unit_stream' || step.questionType.startsWith('multi_trial_') || (step.event === 'response' && (step.responseKind === 'cell' || step.responseKind === 'cell_set'))
   const canRespond = step.event !== 'response' || step.responseKind === null
     ? true
     : stream || step.responseKind === 'cell' || step.responseKind === 'cell_set'
@@ -57,6 +57,10 @@ export const ChcQuestion = ({ question, step, busy, locked, onSubmit, onCheck }:
       : question.allowedOperations.includes('submit')
   const answer = (response: ChcInputResponse) => {
     const elapsed = elapsedMs()
+    if (step.event === 'practice' && step.practiceRound !== undefined && step.unitId && response.kind === 'option' && question.allowedOperations.includes('step')) {
+      send({ operation: 'step', observation: { event: 'practice', unitId: step.unitId, practiceRound: step.practiceRound, unitResponse: { unitId: step.unitId, state: 'submitted', response } } })
+      return
+    }
     if (step.event !== 'response') return
     if (stream && step.unitId && question.allowedOperations.includes('step') && (response.kind === 'option' || response.kind === 'cell' || response.kind === 'cell_set')) {
       const item: ChcUnitItemResponse = response
@@ -66,13 +70,14 @@ export const ChcQuestion = ({ question, step, busy, locked, onSubmit, onCheck }:
   const acknowledge = () => send({ operation: 'step', observation: { event: step.event, ...(step.unitId ? { unitId: step.unitId } : {}), ...(duration !== null ? { observedDurationMs: elapsedMs() } : {}) } })
   const interrupt = () => send(step.taskMode === 'static_choice' && step.questionType === 'single_select' ? { operation: 'interrupt', reason: 'Current activity interrupted' } : { operation: 'interrupt', reason: 'Current activity interrupted', observation: { event: 'interruption', ...(step.unitId ? { unitId: step.unitId } : {}), observedElapsedMs: elapsedMs() } })
   if (hidden) return <div role="status" className="mt-6 rounded-lg border p-4"><p>{notice || 'Saving this step…'}</p><Button className="mt-3" type="button" variant="outline" onClick={onCheck} disabled={busy}>Check again</Button>{notice && question.allowedOperations.includes('interrupt') && <Button className="mt-3 ml-2" type="button" onClick={interrupt} disabled={busy || locked}>Resolve interrupted task</Button>}</div>
-  if (step.event === 'practice') return <div role="alert" className="mt-5 rounded-lg border p-4"><p>Practice is unavailable because this issued step does not include the round needed by the assessment service.</p><Button className="mt-3" type="button" variant="outline" onClick={onCheck} disabled={busy}>Check again</Button></div>
+  if (step.event === 'practice' && (step.practiceRound === undefined || step.responseKind !== 'option' || !step.unitId || !group || !question.allowedOperations.includes('step'))) return <div role="alert" className="mt-5 rounded-lg border p-4"><p>Practice needs an issued round, unit and option group before it can continue.</p><Button className="mt-3" type="button" variant="outline" onClick={onCheck} disabled={busy}>Check again</Button></div>
   if (step.event === 'playback' && (step.timing.playbackLimit === null || !step.stimulus?.media || step.stimulus.media.mediaType !== 'audio')) return <div role="alert">Listening details are unavailable. <Button type="button" variant="outline" onClick={onCheck}>Check again</Button></div>
   return <div>
     {step.unitIndex !== null && step.unitCount !== null && <p className="mt-4 text-sm text-muted-foreground">Part {step.unitIndex} of {step.unitCount}</p>}
     <ChcStimulus step={step} media={question.presentation.media} visible={step.event !== 'retention'} onMediaAvailability={mediaAvailability} />
     {step.event === 'playback' && step.stimulus?.media && step.timing.playbackLimit !== null && <ChcAudio media={step.stimulus.media} limit={step.timing.playbackLimit} allowReplay={step.timing.allowReplay} busy={busy || locked} onComplete={(count, elapsed) => send({ operation: 'step', observation: { event: 'playback', ...(step.unitId ? { unitId: step.unitId } : {}), playbackCount: count, observedDurationMs: elapsed } })} onFailure={() => { setHidden(true); setNotice('Audio could not be completed. Check the current activity.') }} />}
     {step.event === 'response' && step.responseKind !== null && (canRespond ? <ChcResponseControls step={step} group={group} busy={busy || locked} mediaReady={mediaReady} onAnswer={answer} onMediaAvailability={mediaAvailability} /> : <p role="alert" className="mt-5">This activity has no compatible response operation. Check its current state.</p>)}
+    {step.event === 'practice' && <ChcResponseControls step={step} group={group} busy={busy || locked} mediaReady={mediaReady} onAnswer={answer} onMediaAvailability={mediaAvailability} />}
     {step.responseKind === null && step.event !== 'playback' && duration === null && question.allowedOperations.includes('step') && <Button className="mt-5" type="button" disabled={busy || locked || !mediaReady} onClick={acknowledge}>Continue</Button>}
     {duration !== null && step.event === 'response' && remainingMs !== null && <p role="timer" className="mt-3 text-sm text-muted-foreground">Time remaining: {Math.ceil(remainingMs / 1000)} seconds</p>}
     {notice && <p role="alert" className="mt-3 text-sm text-destructive">{notice}</p>}

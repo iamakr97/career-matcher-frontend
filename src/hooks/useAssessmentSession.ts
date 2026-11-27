@@ -4,6 +4,7 @@ import { assessmentApi, useCreateAssessmentMutation, useLazyGetAssessmentQuery, 
 import { assessmentError, type AssessmentError } from '@/lib/assessment-errors'
 import { bindAssessmentAccess, clearAssessmentAccess, clearPendingChoice, createAssessmentAccess, newRequestId, readAssessmentAccess, setPendingChoice, type AssessmentAccess } from '@/lib/assessment-access'
 import { validChcIntent, validSubmitPayload } from '@/lib/chc-contract'
+import { validPisaIntent } from '@/lib/pisa-contract'
 import type { AssessmentOperationIntent, AssessmentParticipant, AssessmentReportResponseDto, AssessmentStateDto, SubmitResponseDto } from '@/types/assessment'
 
 type Operation = 'idle' | 'loading' | 'registering' | 'submitting' | 'checking' | 'report'
@@ -24,6 +25,7 @@ export const useAssessmentSession = () => {
   const [operation, setOperation] = useState<Operation>('idle')
   const [registrationPending, setRegistrationPending] = useState<AssessmentParticipant | null>(null)
   const [pollCount, setPollCount] = useState(0)
+  const [choiceReset, setChoiceReset] = useState(0)
   const [accessLost, setAccessLost] = useState(false)
   const inFlight = useRef(false)
   const generation = useRef(0)
@@ -43,7 +45,7 @@ export const useAssessmentSession = () => {
     current.current = value
     setState(value)
     const receipt = session.current.pending
-    if (receipt && (value.phase === 'report_ready' || (value.currentQuestion && (value.currentQuestion.attemptId !== receipt.payload.attemptId || value.currentQuestion.currentStep !== receipt.payload.step)))) {
+    if (receipt && ((value.phase === 'report_ready' && value.status === 'completed') || (value.currentQuestion && (value.currentQuestion.attemptId !== receipt.payload.attemptId || value.currentQuestion.currentStep !== receipt.payload.step)))) {
       try { updateAccess(clearPendingChoice()) } catch { setError(assessmentError(null)) }
     }
   }
@@ -87,16 +89,25 @@ export const useAssessmentSession = () => {
     const token = begin('report')
     if (token === null) return
     reportRequestedFor.current = `${identity}:${current.current?.phase}`
+    let checkParent = false
     try {
       const result = await readReport({ assessmentId: identity }, false).unwrap()
       if (mounted.current && token === generation.current && session.current?.assessmentId === identity) {
         setError(null)
         setReport(result)
+        checkParent = result.status === 'ready' && (current.current?.status !== 'completed' || current.current.phase !== 'report_ready')
         if (result.status === 'failed') setError({ message: 'Report preparation failed. Your accepted assessment remains saved. Check again later.', accessLost: false, ambiguous: false, fields: {} })
       }
-    } catch (cause) { if (mounted.current && token === generation.current) handleError(cause) }
+    } catch (cause) {
+      if (mounted.current && token === generation.current) {
+        setReport(null)
+        checkParent = assessmentError(cause).reason === 'REPORT_NOT_STARTED'
+        handleError(cause)
+      }
+    }
     finally { finish(token) }
-  }, [readReport, accessLost, begin, handleError])
+    if (checkParent && mounted.current && token === generation.current) await refresh()
+  }, [readReport, accessLost, begin, handleError, refresh])
 
   const refreshRef = useRef(refresh)
   useEffect(() => { refreshRef.current = refresh }, [refresh])
@@ -125,8 +136,9 @@ export const useAssessmentSession = () => {
   }, [state, report?.status, error?.reason, pollCount, accessLost, operation, fetchReport, refresh])
 
   const register = async (participant: AssessmentParticipant) => {
+    if (session.current?.assessmentId) return
     const token = begin('registering')
-    if (token === null || session.current?.assessmentId) return
+    if (token === null) return
     try {
       const retained = createAssessmentAccess()
       updateAccess(retained)
@@ -145,20 +157,28 @@ export const useAssessmentSession = () => {
     const token = begin('submitting')
     if (token === null) return
     let failure: AssessmentError | null = null
+    let checkCommitted = false
     try {
       const result = await submit({ assessmentId: identity, payload }).unwrap()
       if (mounted.current && token === generation.current && session.current?.assessmentId === identity) {
         commit(result)
-        if (session.current?.pending?.payload.requestId === payload.requestId) updateAccess(clearPendingChoice())
+        if (payload.operation === 'draft' && result.stateRevision > payload.expectedStateRevision && result.currentQuestion?.attemptId === payload.attemptId && result.currentQuestion.currentStep === payload.step && result.currentQuestion.interaction.kind === 'constructed_activity' && JSON.stringify(result.currentQuestion.interaction.draft) === JSON.stringify(payload.response.output) && session.current?.pending?.payload.requestId === payload.requestId) updateAccess(clearPendingChoice())
+        checkCommitted = current.current?.phase === 'administering' && current.current.currentQuestion?.attemptId === payload.attemptId && current.current.currentQuestion.currentStep === payload.step && session.current?.pending?.payload.requestId === payload.requestId
         setError(null)
       }
     } catch (cause) { if (mounted.current && token === generation.current) { failure = assessmentError(cause); handleError(cause) } }
     finally { finish(token); submitResult.reset() }
+    if (checkCommitted && mounted.current && token === generation.current) await reconcile()
     if (failure && !failure.accessLost && mounted.current && token === generation.current) {
       const confirmed = await reconcile()
       const issued = current.current?.currentQuestion
-      if (confirmed && !failure.ambiguous && issued?.attemptId === payload.attemptId && issued.currentStep === payload.step && session.current?.pending?.payload.requestId === payload.requestId) {
-        try { updateAccess(clearPendingChoice()) } catch { setError(assessmentError(null)) }
+      const definitelyRejected = ['INVALID_REQUEST', 'INVALID_RESPONSE', 'OPERATION_NOT_ALLOWED', 'PAYLOAD_TOO_LARGE'].includes(failure.reason ?? '')
+      if (confirmed && definitelyRejected && issued?.attemptId === payload.attemptId && issued.currentStep === payload.step && session.current?.pending?.payload.requestId === payload.requestId) {
+        try {
+          updateAccess(clearPendingChoice())
+          if (payload.operation === 'submit' && payload.response.kind === 'choice') setChoiceReset((count) => count + 1)
+          setError(failure)
+        } catch { setError(assessmentError(null)) }
       }
     }
   }
@@ -166,19 +186,19 @@ export const useAssessmentSession = () => {
     const committed = current.current
     const question = committed?.currentQuestion
     const identity = session.current?.assessmentId
-    if (!committed || !question || !identity || identity !== committed.assessmentId || inFlight.current || session.current?.pending || committed.phase !== 'administering' || committed.status !== 'active' || !question.allowedOperations.includes(intent.operation) || (question.recoveryRequired && intent.operation !== 'interrupt')) return
-    if (question.interaction.kind === 'choice' && (intent.operation !== 'submit' || !('response' in intent) || intent.response.kind !== 'choice')) return
-    if (question.interaction.kind === 'performance' && intent.operation === 'submit' && (!('response' in intent) || intent.response.kind !== 'performance')) return
-    if (question.interaction.kind === 'performance' && !validChcIntent(question, intent)) return
-    if (question.interaction.kind === 'constructed_activity') return
+    if (!committed || !question || !identity || identity !== committed.assessmentId || inFlight.current || session.current?.pending || committed.phase !== 'administering' || committed.status !== 'active' || !question.allowedOperations.includes(intent.operation) || (question.recoveryRequired && intent.operation !== 'interrupt')) { setError({ message: 'This action is unavailable for the current saved step. Check again before continuing.', accessLost: false, ambiguous: false, fields: {} }); return }
+    if (question.interaction.kind === 'choice' && (intent.operation !== 'submit' || intent.response.kind !== 'choice')) return
+    if (question.interaction.kind === 'performance' && !validChcIntent(question, intent)) { setError({ message: 'This response does not match the current issued performance step.', accessLost: false, ambiguous: false, fields: {} }); return }
+    if (question.interaction.kind === 'constructed_activity' && !validPisaIntent(question, intent)) { setError({ message: 'Complete the issued activity fields before saving or submitting.', accessLost: false, ambiguous: false, fields: {} }); return }
     const common = { attemptId: question.attemptId, requestId: newRequestId(), expectedStateRevision: committed.stateRevision, step: question.currentStep }
     let payload: SubmitResponseDto
     if (intent.operation === 'step') payload = { ...common, ...intent }
     else if (intent.operation === 'skip') payload = { ...common, ...intent }
     else if (intent.operation === 'interrupt') payload = { ...common, ...intent }
+    else if (intent.operation === 'draft') payload = { ...common, ...intent }
     else if (intent.response.kind === 'choice') payload = { ...common, operation: 'submit', response: intent.response }
     else payload = { ...common, ...intent }
-    if (!validSubmitPayload(payload)) return
+    if (!validSubmitPayload(payload)) { setError({ message: 'This response cannot be saved because its format or size is invalid.', accessLost: false, ambiguous: false, fields: {} }); return }
     try { updateAccess(setPendingChoice({ assessmentId: identity, payload })) }
     catch { setError({ message: 'This response cannot be saved for recovery in this tab. Please check browser storage and try again.', accessLost: false, ambiguous: false, fields: {} }); return }
     await sendSaved(payload, identity)
@@ -202,7 +222,7 @@ export const useAssessmentSession = () => {
     generation.current++
     clearAssessmentAccess()
     dispatch(assessmentApi.util.resetApiState())
-    updateAccess(null); current.current = null; reportRequestedFor.current = null; setState(null); setReport(null); setError(null); setCorrupt(false); setAccessLost(false); setRegistrationPending(null); setPollCount(0)
+    updateAccess(null); current.current = null; reportRequestedFor.current = null; setState(null); setReport(null); setError(null); setCorrupt(false); setAccessLost(false); setRegistrationPending(null); setPollCount(0); setChoiceReset(0)
   }
-  return { access, corrupt, accessLost, state, report, error, operation, registrationPending, pollCount, register, refresh, fetchReport, submitChoice, submitOperation, retrySaved, abandon }
+  return { access, corrupt, accessLost, state, report, error, operation, registrationPending, pollCount, choiceReset, register, refresh, fetchReport, submitChoice, submitOperation, retrySaved, abandon }
 }

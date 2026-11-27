@@ -1,4 +1,5 @@
 import type { AssessmentOperationIntent, AssessmentPerformanceStepDto, AssessmentQuestionDto, ChcObservationInputDto, ChcTaskResponse, SubmitResponseDto } from '@/types/assessment'
+import { validCreativeObservation, validPisaResponseShape } from '@/lib/pisa-contract'
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const text = (value: unknown, max = 4096): value is string => typeof value === 'string' && value.length <= max
@@ -24,7 +25,7 @@ export const validChcStep = (value: unknown, media: (value: unknown) => boolean)
   if (!record(timing) || !['studyExposureMs', 'perTokenExposureMs', 'interTokenGapMs', 'retentionDelayMs', 'ruleCueExposureMs', 'interferenceDurationMs', 'responseWindowMs', 'interUnitGapMs'].every((key) => timing[key] === null || duration(timing[key])) || !(timing.playbackLimit === null || integer(timing.playbackLimit, 1)) || typeof timing.allowReplay !== 'boolean' || typeof timing.studyVisibleDuringResponse !== 'boolean') return false
   const s = value.stimulus
   if (s !== undefined && (!record(s) || !['text', 'cue', 'current', 'sample', 'candidate', 'studyText'].every((key) => optional(s[key], text)) || !['tokens', 'highlightOrder', 'cells', 'responseCells', 'rowA', 'rowB'].every((key) => optional(s[key], (items) => list(items, text))) || !optional(s.numberTokens, (items) => list(items, (item) => typeof item === 'number' && Number.isFinite(item))) || !optional(s.gridRows, (item) => integer(item, 1)) || !optional(s.gridColumns, (item) => integer(item, 1)) || (s.gridRows !== undefined && s.gridColumns !== undefined && (Number(s.gridRows) * Number(s.gridColumns) > 256 || (Array.isArray(s.cells) && s.cells.length > Number(s.gridRows) * Number(s.gridColumns)))) || !optional(s.studyPairs, (items) => list(items, (pair) => record(pair) && id(pair.cue) && optional(pair.target, text) && optional(pair.targetSequence, (tokens) => list(tokens, text)) && optional(pair.context, text))) || !optional(s.studyFacts, (items) => list(items, (fact) => record(fact) && ['text', 'signal', 'object', 'destination', 'event', 'location'].every((key) => optional(fact[key], text)))) || !optional(s.optionGroup, (group) => optionGroup(group, media)) || !optional(s.media, media))) return false
-  return optional(value.responseTokens, (items) => list(items, text))
+  return optional(value.responseTokens, (items) => list(items, text)) && optional(value.practiceRound, (item) => integer(item, 1)) && optional(value.cellCount, (item) => integer(item, 1) && item <= 256) && optional(value.omissionAllowed, (item) => typeof item === 'boolean')
 }
 
 export const validChcTaskResponse = (value: unknown): value is ChcTaskResponse => {
@@ -47,11 +48,14 @@ export const validChcObservation = (value: unknown): value is ChcObservationInpu
 
 export const validSubmitPayload = (value: unknown): value is SubmitResponseDto => {
   if (!record(value) || typeof value.attemptId !== 'string' || !/^[a-fA-F0-9]{24}$/.test(value.attemptId) || !id(value.requestId) || [...value.requestId].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) || !integer(value.expectedStateRevision) || !id(value.step)) return false
-  if (value.operation === 'step') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'observation']) && validChcObservation(value.observation)
+  try { if (new TextEncoder().encode(JSON.stringify(value)).length > 1024 * 1024) return false } catch { return false }
+  if (value.operation === 'step') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'observation']) && (validChcObservation(value.observation) || validCreativeObservation(value.observation))
+  if (value.operation === 'draft') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'response', 'observation']) && record(value.response) && keys(value.response, ['kind', 'output']) && value.response.kind === 'constructed_activity' && validPisaResponseShape(value.response.output) && (value.observation === undefined || validCreativeObservation(value.observation))
   if (value.operation === 'skip') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'reason']) && id(value.reason) && value.reason.length <= 256
-  if (value.operation === 'interrupt') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'reason', 'observation']) && id(value.reason) && value.reason.length <= 256 && optional(value.observation, validChcObservation)
+  if (value.operation === 'interrupt') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'reason', 'observation']) && id(value.reason) && value.reason.length <= 256 && optional(value.observation, (item) => validChcObservation(item) || validCreativeObservation(item))
   if (value.operation !== 'submit' || !record(value.response)) return false
   if (value.response.kind === 'choice') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'response']) && keys(value.response, ['kind', 'selectedOptionId']) && id(value.response.selectedOptionId)
+  if (value.response.kind === 'constructed_activity') return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'response', 'observation']) && keys(value.response, ['kind', 'output']) && validPisaResponseShape(value.response.output) && (value.observation === undefined || validCreativeObservation(value.observation))
   return keys(value, ['attemptId', 'requestId', 'expectedStateRevision', 'step', 'operation', 'response', 'observation']) && value.response.kind === 'performance' && keys(value.response, ['kind', 'response']) && validChcTaskResponse(value.response.response) && optional(value.observation, validChcObservation)
 }
 
@@ -68,6 +72,7 @@ export const validChcIntent = (question: AssessmentQuestionDto, intent: Assessme
       if (!Array.isArray(response.tokens) || !step.responseTokens) return false
       const remaining = [...step.responseTokens]
       for (const token of response.tokens) {
+        if (token === null && response.kind === 'ordered') continue
         if (typeof token !== 'string') return false
         const index = remaining.indexOf(token)
         if (index < 0) return false
@@ -76,21 +81,23 @@ export const validChcIntent = (question: AssessmentQuestionDto, intent: Assessme
       return true
     }
     if (response.kind === 'cell') {
-      const count = step.stimulus?.gridRows && step.stimulus.gridColumns ? step.stimulus.gridRows * step.stimulus.gridColumns : step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
+      const count = step.cellCount ?? step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
       return count > 0 && integer(response.position, 1) && response.position <= count
     }
     if (response.kind === 'cell_set') {
-      const count = step.stimulus?.gridRows && step.stimulus.gridColumns ? step.stimulus.gridRows * step.stimulus.gridColumns : step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
+      const count = step.cellCount ?? step.stimulus?.responseCells?.length ?? step.stimulus?.cells?.length ?? 0
       return count > 0 && list(response.positions, (position) => integer(position, 1) && position <= count) && new Set(response.positions).size === response.positions.length
     }
     return false
   }
   if (intent.operation === 'submit') return intent.response.kind === 'performance' && (!('observation' in intent) || intent.observation === undefined) && step.event === 'response' && step.responseKind === intent.response.response.kind && responseValid(intent.response.response)
+  if (intent.operation !== 'step' || !('event' in intent.observation)) return false
   const observation = intent.observation
   if (observation.event !== step.event && observation.event !== 'interruption' && observation.event !== 'technical_failure') return false
   if (step.unitId !== null && observation.unitId !== step.unitId) return false
   if (observation.playbackCount !== undefined && (step.event !== 'playback' || step.timing.playbackLimit === null || observation.playbackCount > step.timing.playbackLimit)) return false
-  if (observation.unitResponse && (observation.unitResponse.unitId !== step.unitId || observation.unitResponse.state !== 'submitted' || !responseValid(observation.unitResponse.response))) return false
+  if (step.event === 'practice' && (step.practiceRound === undefined || observation.practiceRound !== step.practiceRound || step.responseKind !== 'option')) return false
+  if (observation.unitResponse && (observation.unitResponse.unitId !== step.unitId || (observation.unitResponse.state === 'omitted' ? !(step.event === 'response' && step.omissionAllowed === true && observation.unitResponse.response === undefined) : observation.unitResponse.state !== 'submitted' || !responseValid(observation.unitResponse.response)))) return false
   if (observation.response && !responseValid(observation.response)) return false
   return true
 }

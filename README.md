@@ -4,7 +4,7 @@ React, TypeScript, Vite, React Router, Tailwind CSS v4, Redux Toolkit, and RTK Q
 
 ## Setup
 
-Copy `.env.example` to `.env`. Set `VITE_BE_API_URL` to the actual backend HTTP(S) origin only; the shared transport appends `/api` once. The backend must allow the trusted frontend origin and `Authorization` header through CORS. Use a trusted origin and TLS in production.
+Set `VITE_BE_API_URL` to the actual backend HTTP(S) origin only; the shared transport appends `/api` once. The registration form offers five local age labels without an environment catalog. The backend decides eligibility and provisioning. The backend must allow the trusted frontend origin and `Authorization` header through CORS. Use a trusted origin and TLS in production.
 
 ## Routes
 
@@ -14,7 +14,9 @@ Copy `.env.example` to `.env`. Set `VITE_BE_API_URL` to the actual backend HTTP(
 
 The assessment capability and identity are retained in `sessionStorage` for same-tab reload. At most one exact pending operation is retained temporarily for uncertain-submit recovery. `sessionStorage` is accessible to scripts on the same origin, so this is not an account login, secure vault, or cross-device recovery mechanism. Losing the capability may permanently lose access. Registration and pending-submission retries are explicit; no background mutation is sent on reload.
 
-CHC requires a backend that projects the current public performance step and accepts native STEP and SUBMIT operations. The current backend requires `practiceRound` for practice submissions but does not project it, so the learner UI stops safely at those steps. Its age-group environment gate also still rejects registration independently of this frontend. PISA constructed activities await FE03. Final backend provisioning, scientific form readiness, eligibility, approved rubric, consent, storage and release policy remain independent deployment requirements. The frontend does not establish scientific validity or a complete seven-model learner journey. The registration age labels are temporary demographic choices; backend scientific eligibility remains authoritative.
+The backend owns model progress, readiness, and the HTML report. Manual backend and database provisioning remains external to this frontend. After provisioning, manually start an assessment with the existing button, answer issued tasks for a backend-configured RIASEC-only form if available, and confirm the report. Then check other enabled models only with reviewed backend data. No runtime assessment was executed as part of this source change.
+
+CHC supports issued static choice, audio, visual memory, sequence memory, learn and retain, and timed fluency steps through the existing performance renderer where the backend provides a complete step contract. The current backend requires `practiceRound` for practice submissions but does not project it, and does not project `cellCount` or `omissionAllowed`; those steps stop safely when their public domain is missing. PISA now has typed contracts, a media step, and a native meaning roles editor with explicit draft and submit. The other thirteen variants remain unavailable in the learner UI: comic locked panels, paired visual layout, sign asset palette, poster template, paired space plan, social flow, timed allocation, resource return, causal pair, cloth experiment, general experiment, story revision, and investigation builder. The current backend also omits `pieceAssets` from the paired layout projection and an editable baseline scene for posters. Final backend provisioning, scientific form readiness, eligibility, approved rubric, consent, storage and release policy remain independent deployment requirements. The frontend does not establish scientific validity or a complete seven-model learner journey.
 
 ## Verification
 

@@ -1,6 +1,7 @@
 import type { AssessmentReportResponseDto, AssessmentStateDto } from '@/types/assessment'
 import type { ApiResponse } from '@/types/common'
 import { validChcStep } from '@/lib/chc-contract'
+import { validPisaEditor, validPisaOutput } from '@/lib/pisa-contract'
 
 const models = ['riasec', 'big_five', 'oecd_sses', 'chc', 'pisa_creative_thinking', 'sdt', 'scct']
 const statuses = ['created', 'active', 'paused', 'blocked', 'completed']
@@ -42,7 +43,7 @@ const question = (value: unknown): boolean => {
   } else if (i.kind === 'performance') {
     if (value.model !== 'chc' || !validChcStep(i.protocol, media)) return false
   } else if (i.kind === 'constructed_activity') {
-    if ((i.requiredOutputs !== 1 && i.requiredOutputs !== 2) || !('editor' in i) || !('draft' in i)) return false
+    if (value.model !== 'pisa_creative_thinking' || (i.requiredOutputs !== 1 && i.requiredOutputs !== 2) || !validPisaEditor(i.editor) || !(i.draft === null || validPisaOutput(i.draft, i.editor))) return false
   } else return false
   const ids = new Set<string>()
   for (const group of p.options) {

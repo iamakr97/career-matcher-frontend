@@ -57,8 +57,19 @@ const question = (value: unknown): boolean => {
   }
   return i.kind !== 'choice' || p.options.filter((group) => group.groupId === i.optionGroupId).length === 1
 }
+const validModelProgress = (value: unknown): boolean => {
+  if (!record(value) || !member(value.model, models) || !nonempty(value.name) ||
+    !member(value.status, modelStatuses) || !count(value.answeredQuestions) ||
+    !count(value.plannedQuestions)) return false
+  const issued = value.additionalQuestionsIssued
+  const answered = value.additionalQuestionsAnswered
+  if (issued === undefined && answered === undefined) return true
+  if (!count(issued) || !count(answered)) return false
+  return answered <= issued && answered <= value.answeredQuestions &&
+    value.answeredQuestions - answered <= value.plannedQuestions
+}
 export const parseState = (value: unknown, expectedId?: string): AssessmentStateDto => {
-  requireValid(record(value) && validLocator(value.assessmentId) && (!expectedId || value.assessmentId === expectedId) && member(value.status, statuses) && member(value.phase, phases) && count(value.stateRevision) && (value.activeModel === null || member(value.activeModel, models)) && date(value.startedAt) && date(value.completedAt) && record(value.progress) && count(value.progress.totalModels) && count(value.progress.completedModels) && count(value.progress.answeredQuestions) && count(value.progress.plannedQuestions) && value.progress.completedModels <= value.progress.totalModels && Array.isArray(value.models) && value.models.length === value.progress.totalModels && value.models.every((model) => record(model) && member(model.model, models) && nonempty(model.name) && member(model.status, modelStatuses) && count(model.answeredQuestions) && count(model.plannedQuestions) && (model.additionalQuestionsIssued === undefined || count(model.additionalQuestionsIssued)) && (model.additionalQuestionsAnswered === undefined || count(model.additionalQuestionsAnswered)) && (model.additionalQuestionsIssued === undefined || model.additionalQuestionsAnswered === undefined || model.additionalQuestionsAnswered <= model.additionalQuestionsIssued)) && new Set(value.models.map((model) => model.model)).size === value.models.length && (value.currentQuestion === null || (question(value.currentQuestion) && record(value.currentQuestion) && value.currentQuestion.model === value.activeModel)))
+  requireValid(record(value) && validLocator(value.assessmentId) && (!expectedId || value.assessmentId === expectedId) && member(value.status, statuses) && member(value.phase, phases) && count(value.stateRevision) && (value.activeModel === null || member(value.activeModel, models)) && date(value.startedAt) && date(value.completedAt) && record(value.progress) && count(value.progress.totalModels) && count(value.progress.completedModels) && count(value.progress.answeredQuestions) && count(value.progress.plannedQuestions) && value.progress.completedModels <= value.progress.totalModels && Array.isArray(value.models) && value.models.length === value.progress.totalModels && value.models.every(validModelProgress) && new Set(value.models.map((model) => model.model)).size === value.models.length && (value.currentQuestion === null || (question(value.currentQuestion) && record(value.currentQuestion) && value.currentQuestion.model === value.activeModel)))
   return value as AssessmentStateDto
 }
 export const parseReport = (value: unknown, expectedId: string): AssessmentReportResponseDto => {

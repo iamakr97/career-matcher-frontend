@@ -1,9 +1,11 @@
 import type { ApiErrorResponse } from '@/types/common'
+import { AssessmentContractError } from '@/lib/assessment-contract'
 
 export interface AssessmentError { message: string; status?: number | string; reason?: string; ambiguous: boolean; fields: Record<string, string> }
 const safe = (value: unknown): string | null => typeof value === 'string' && value.length > 0 && value.length <= 240 && !/[<>]|https?:|\b(?:stack|trace|exception|password|secret|token|credential|mongodb|postgres)\b/i.test(value) ? value : null
 
 export const assessmentError = (error: unknown): AssessmentError => {
+  if (error instanceof AssessmentContractError) return { message: 'The assessment service returned an unexpected response.', status: 'PARSING_ERROR', ambiguous: true, fields: {} }
   const value = error && typeof error === 'object' ? error as Record<string, unknown> : {}
   const status = typeof value.status === 'number' || typeof value.status === 'string' ? value.status : undefined
   const data = value.data && typeof value.data === 'object' ? value.data as Partial<ApiErrorResponse> : null

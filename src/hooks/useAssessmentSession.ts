@@ -9,7 +9,14 @@ import type { AssessmentOperationIntent, AssessmentParticipant, AssessmentReport
 type Operation = 'idle' | 'loading' | 'registering' | 'submitting' | 'checking' | 'report'
 export type OperationOutcome = 'accepted' | 'rejected' | 'uncertain' | 'not_sent'
 const processing = (state: AssessmentStateDto) => ['awaiting_evaluation', 'finalizing_scientific_results', 'generating_report'].includes(state.phase)
-const progressed = (state: AssessmentStateDto, payload: SubmitResponseDto) => state.status === 'completed' || state.phase === 'report_ready' || !!state.currentQuestion && (state.currentQuestion.attemptId !== payload.attemptId || state.currentQuestion.currentStep !== payload.step)
+const progressed = (state: AssessmentStateDto, payload: SubmitResponseDto): boolean =>
+  state.stateRevision > payload.expectedStateRevision && (
+    state.status === 'completed' && state.phase === 'report_ready' ||
+    state.currentQuestion !== null && (
+      state.currentQuestion.attemptId !== payload.attemptId ||
+      state.currentQuestion.currentStep !== payload.step
+    )
+  )
 
 export const useAssessmentSession = (assessmentId?: string) => {
   const navigate = useNavigate()
@@ -30,13 +37,25 @@ export const useAssessmentSession = (assessmentId?: string) => {
   const [submit] = useSubmitResponseMutation()
   const [readReport] = useLazyGetAssessmentReportQuery()
 
-  const commit = useCallback((next: AssessmentStateDto) => {
-    if (!mounted.current || scope.current !== assessmentId || next.assessmentId !== assessmentId || current.current && next.stateRevision < current.current.stateRevision) return
+  const clearPending = (payload: SubmitResponseDto) => {
+    if (pending.current !== payload) return
+    pending.current = null
+    setHasPending(false)
+    setError(null)
+  }
+
+  const commit = useCallback((next: AssessmentStateDto): boolean => {
+    if (!mounted.current || scope.current !== assessmentId || next.assessmentId !== assessmentId || current.current && next.stateRevision < current.current.stateRevision) return false
     const previous = current.current
     current.current = next
     setState(next)
-    if (pending.current && progressed(next, pending.current)) { pending.current = null; setHasPending(false) }
+    if (pending.current && progressed(next, pending.current)) {
+      pending.current = null
+      setHasPending(false)
+      setError(null)
+    }
     if (!previous || previous.phase !== next.phase || previous.activeModel !== next.activeModel || previous.currentQuestion?.attemptId !== next.currentQuestion?.attemptId || previous.currentQuestion?.currentStep !== next.currentQuestion?.currentStep) setPollCount(0)
+    return true
   }, [assessmentId])
   const begin = (kind: Operation) => {
     if (flight.current) return false
@@ -49,30 +68,32 @@ export const useAssessmentSession = (assessmentId?: string) => {
     if (mounted.current) setOperation('idle')
   }
   const refresh = useCallback(async (initial = false) => {
-    if (!assessmentId || flight.current) return false
+    const requestedId = assessmentId
+    if (!requestedId || flight.current || !mounted.current || scope.current !== requestedId) return false
     flight.current = true
     setOperation(initial ? 'loading' : 'checking')
     try {
-      const next = await read({ assessmentId }, false).unwrap()
-      if (mounted.current && scope.current === assessmentId) {
-        commit(next)
-        if (!pending.current) setError(null)
-        return true
+      const next = await read({ assessmentId: requestedId }, false).unwrap()
+      if (mounted.current && scope.current === requestedId) {
+        const applied = commit(next)
+        if (applied && !pending.current) setError(null)
+        return applied
       }
-    } catch (cause) { if (mounted.current) setError(assessmentError(cause)) }
-    finally { flight.current = false; if (mounted.current) setOperation('idle') }
+    } catch (cause) { if (mounted.current && scope.current === requestedId) setError(assessmentError(cause)) }
+    finally { if (mounted.current && scope.current === requestedId) { flight.current = false; setOperation('idle') } }
     return false
   }, [assessmentId, read, commit])
   const fetchReport = useCallback(async () => {
-    if (!assessmentId || flight.current) return
+    const requestedId = assessmentId
+    if (!requestedId || flight.current || !mounted.current || scope.current !== requestedId) return
     flight.current = true
     setOperation('report')
     reportRequested.current = true
     try {
-      const next = await readReport({ assessmentId }, false).unwrap()
-      if (mounted.current) { setReport(next); setError(null) }
-    } catch (cause) { if (mounted.current) setError(assessmentError(cause)) }
-    finally { flight.current = false; if (mounted.current) setOperation('idle') }
+      const next = await readReport({ assessmentId: requestedId }, false).unwrap()
+      if (mounted.current && scope.current === requestedId && next.assessmentId === requestedId) { setReport(next); setError(null) }
+    } catch (cause) { if (mounted.current && scope.current === requestedId) setError(assessmentError(cause)) }
+    finally { if (mounted.current && scope.current === requestedId) { flight.current = false; setOperation('idle') } }
   }, [assessmentId, readReport])
   useEffect(() => {
     mounted.current = true
@@ -81,7 +102,7 @@ export const useAssessmentSession = (assessmentId?: string) => {
     pending.current = null
     flight.current = false
     reportRequested.current = false
-    if (assessmentId) queueMicrotask(() => { if (mounted.current) void refresh(true) })
+    if (assessmentId) queueMicrotask(() => { if (mounted.current && scope.current === assessmentId) void refresh(true) })
     return () => { mounted.current = false; scope.current = undefined }
   }, [assessmentId, refresh])
   useEffect(() => {
@@ -98,45 +119,47 @@ export const useAssessmentSession = (assessmentId?: string) => {
     return () => window.clearTimeout(timer)
   }, [state, report?.status, error?.reason, pollCount, operation, refresh, fetchReport])
   const register = async (participant: AssessmentParticipant) => {
-    if (assessmentId || !begin('registering')) return
+    const requestedId = assessmentId
+    if (requestedId || !mounted.current || scope.current !== requestedId || !begin('registering')) return
     try {
       const next = await create({ participant }).unwrap()
-      if (mounted.current) navigate(`/assessment/${encodeURIComponent(next.assessmentId)}`)
-    } catch (cause) { if (mounted.current) setError(assessmentError(cause)) }
-    finally { end() }
+      if (mounted.current && scope.current === requestedId) navigate(`/assessment/${encodeURIComponent(next.assessmentId)}`)
+    } catch (cause) { if (mounted.current && scope.current === requestedId) setError(assessmentError(cause)) }
+    finally { if (mounted.current && scope.current === requestedId) end() }
   }
   const send = async (payload: SubmitResponseDto): Promise<OperationOutcome> => {
-    if (!assessmentId || !begin('submitting')) return 'not_sent'
+    const requestedId = assessmentId
+    if (!requestedId || !mounted.current || scope.current !== requestedId || !begin('submitting')) return 'not_sent'
     try {
-      const next = await submit({ assessmentId, payload }).unwrap()
-      if (mounted.current && scope.current === assessmentId) {
-        commit(next)
-        pending.current = null
-        setHasPending(false)
-        setError(null)
+      const next = await submit({ assessmentId: requestedId, payload }).unwrap()
+      if (!mounted.current || scope.current !== requestedId) return 'not_sent'
+      const applied = commit(next)
+      if (!applied && current.current && progressed(current.current, payload)) { clearPending(payload); return 'accepted' }
+      if (applied && (progressed(next, payload) || payload.operation === 'draft' && next.stateRevision > payload.expectedStateRevision && next.currentQuestion?.attemptId === payload.attemptId && next.currentQuestion.currentStep === payload.step)) {
+        clearPending(payload)
+        return 'accepted'
       }
-      return 'accepted'
+      setError({ message: 'Your answer may have been saved. Check its status or retry the saved answer.', ambiguous: true, fields: {} })
+      return 'uncertain'
     } catch (cause) {
-      if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
+      if (!mounted.current || scope.current !== requestedId) return 'not_sent'
       const failure = assessmentError(cause)
       if (failure.ambiguous || failure.status === 409) {
         try {
-          const next = await read({ assessmentId }, false).unwrap()
-          if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
-          commit(next)
-          if (progressed(next, payload)) { setError(null); return 'accepted' }
+          const next = await read({ assessmentId: requestedId }, false).unwrap()
+          if (!mounted.current || scope.current !== requestedId) return 'not_sent'
+          if (commit(next) && progressed(next, payload) || current.current && progressed(current.current, payload)) { clearPending(payload); return 'accepted' }
         } catch (recoveryCause) {
-          if (!mounted.current || scope.current !== assessmentId) return 'not_sent'
+          if (!mounted.current || scope.current !== requestedId) return 'not_sent'
           if (assessmentError(recoveryCause).status === 'PARSING_ERROR') setError({ message: 'The assessment service returned an unexpected response.', ambiguous: true, fields: {} })
         }
-        setError({ message: failure.status === 'PARSING_ERROR' ? 'The assessment service returned an unexpected response. Retry your saved answer.' : 'Your answer may have been saved. Retry the same answer to continue.', ambiguous: true, fields: {} })
+        setError({ message: failure.status === 'PARSING_ERROR' ? 'The assessment service returned an unexpected response.' : failure.status === 409 && failure.reason === 'REQUEST_CONFLICT' ? 'The saved request conflicts with another response. Check the current state before continuing.' : 'Your answer may have been saved. Check its status or retry the saved answer.', ambiguous: true, fields: {} })
         return 'uncertain'
       }
-      pending.current = null
-      setHasPending(false)
+      clearPending(payload)
       setError(failure)
       return 'rejected'
-    } finally { end() }
+    } finally { if (mounted.current && scope.current === requestedId) end() }
   }
   const submitOperation = async (intent: AssessmentOperationIntent): Promise<OperationOutcome> => {
     const saved = current.current
@@ -162,8 +185,8 @@ export const useAssessmentSession = (assessmentId?: string) => {
   const retrySaved = async () => { if (pending.current) await send(pending.current) }
   const checkAgain = async () => {
     const hadPending = pending.current
-    await refresh()
-    if (hadPending && pending.current && current.current?.currentQuestion?.attemptId === hadPending.attemptId && current.current.currentQuestion.currentStep === hadPending.step) setError({ message: 'Your answer may have been saved. Retry the same answer to continue.', ambiguous: true, fields: {} })
+    const checked = await refresh()
+    if (checked && hadPending && pending.current === hadPending) setError({ message: 'Your answer may still be processing. Retry the same response if needed.', ambiguous: true, fields: {} })
   }
   return { state, report, error, operation, pollCount, hasPending, register, refresh: checkAgain, fetchReport, submitChoice, submitOperation, retrySaved }
 }
